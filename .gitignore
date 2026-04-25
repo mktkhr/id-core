@@ -1,0 +1,47 @@
+# 参考資料 (コミット対象外)
+アーカイブ/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 環境変数
+.env
+.env.local
+.env.*.local
+
+# Go
+*.exe
+*.test
+*.out
+bin/
+tmp/
+output/
+coverage.out
+
+# Node / pnpm / Next.js
+node_modules/
+.pnpm-store/
+.next/
+.turbo/
+dist/
+build/
+out/
+coverage/
+*.tsbuildinfo
+
+# Java / Kotlin / Gradle
+.gradle/
+*.class
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# ログ・一時ファイル
+*.log
+logs/
+.cache/
