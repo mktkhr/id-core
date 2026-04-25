@@ -1,0 +1,18 @@
+#!/bin/sh
+# pre-commit: ステージングされた Markdown を prettier で整形して再ステージング
+# 注: ファイル名に空白を含むケースは未対応 (本リポジトリでは想定外)
+
+set -e
+
+STAGED_MD=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(md|markdown|mdx)$' || true)
+[ -z "$STAGED_MD" ] && exit 0
+
+PRETTIER_VERSION="${PRETTIER_VERSION:-3.8.3}"
+
+echo "→ prettier@${PRETTIER_VERSION}: ステージング済みの Markdown を整形..."
+echo "$STAGED_MD" | xargs npx -y prettier@${PRETTIER_VERSION} --write --log-level warn
+
+# 整形差分を再ステージング
+echo "$STAGED_MD" | xargs git add
+
+exit 0

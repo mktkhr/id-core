@@ -1,0 +1,28 @@
+# rulesync 生成物 (正本は .rulesync/ なので整形しない)
+CLAUDE.md
+AGENTS.md
+.mcp.json
+.claude/
+.codex/
+
+# 依存・ビルド成果物
+node_modules/
+dist/
+build/
+out/
+coverage/
+.next/
+.turbo/
+
+# Go
+bin/
+tmp/
+
+# 参考資料 (.gitignore 済だが念のため)
+アーカイブ/
+
+# Lock ファイル
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+go.sum
