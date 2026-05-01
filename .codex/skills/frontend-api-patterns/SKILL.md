@@ -73,7 +73,10 @@ export const useClientDetail = (clientId: string) => {
 ### Mutation + キャッシュ無効化 + Snackbar
 
 ```typescript
-import { getGetClientsQueryKey, useCreateClient } from "@/api/generated/clients";
+import {
+  getGetClientsQueryKey,
+  useCreateClient,
+} from "@/api/generated/clients";
 import { useAppSnackbar } from "@/shared/hooks/useAppSnackbar";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -133,7 +136,9 @@ export async function createClient(input: CreateClientInput) {
   const res = await fetch(`${process.env.API_BASE_URL}/clients`, {
     method: "POST",
     body: JSON.stringify(input),
-    headers: { /* ... */ },
+    headers: {
+      /* ... */
+    },
   });
   if (!res.ok) throw new Error("作成に失敗しました");
   revalidateTag("clients");
@@ -171,14 +176,17 @@ const handleApiError = (error: unknown) => {
 const res = await fetch("/api/v1/clients");
 
 // ❌ NG: API 関数を手動で書く (共通ファクトリを使う)
-export const getClients = async () => customInstance("/api/v1/clients", { method: "GET" });
+export const getClients = async () =>
+  customInstance("/api/v1/clients", { method: "GET" });
 
 // ❌ NG: queryKey を手動で定義
 const { data } = useQuery({ queryKey: ["clients"], queryFn: fetchClients });
 
 // ❌ NG: useEffect + setState でデータ取得 (React Query / SWR を使う)
 const [data, setData] = useState([]);
-useEffect(() => { void fetchClients().then(setData); }, []);
+useEffect(() => {
+  void fetchClients().then(setData);
+}, []);
 
 // ✅ OK: 生成 hook
 const { data } = useGetClients();

@@ -74,7 +74,10 @@ export class ApiClientError<ErrorData = unknown> extends Error {
 export type ErrorType<ErrorData> = ApiClientError<ErrorData>;
 export type BodyType<BodyData> = BodyData;
 
-export const customInstance = async <T>(url: string, options?: RequestInit): Promise<T> => {
+export const customInstance = async <T>(
+  url: string,
+  options?: RequestInit,
+): Promise<T> => {
   const response = await fetch(url, options);
   const data = await response.json();
 
@@ -97,7 +100,10 @@ export const customInstance = async <T>(url: string, options?: RequestInit): Pro
 
 ```typescript
 // 自動生成例
-export const useGetClients = (params?: GetClientsParams, options?: UseQueryOptions) => {
+export const useGetClients = (
+  params?: GetClientsParams,
+  options?: UseQueryOptions,
+) => {
   return useQuery({
     queryKey: getGetClientsQueryKey(params),
     queryFn: () => getClients(params),
@@ -143,7 +149,10 @@ const ClientList = () => {
 ### useMutation + キャッシュ無効化
 
 ```typescript
-import { getGetClientsQueryKey, useCreateClient } from "@/api/generated/clients";
+import {
+  getGetClientsQueryKey,
+  useCreateClient,
+} from "@/api/generated/clients";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAppSnackbar } from "@/shared/hooks/useAppSnackbar";
 

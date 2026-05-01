@@ -194,7 +194,9 @@ const MyComponent = () => (
 ```typescript
 // ❌ NG: filter オブジェクトの参照が毎回変わる
 const filter = { status: statusId, category: categoryId };
-useEffect(() => { fetchData(filter); }, [filter]);
+useEffect(() => {
+  fetchData(filter);
+}, [filter]);
 
 // ✅ OK: プリミティブに分解
 useEffect(() => {
@@ -216,10 +218,10 @@ import { Button } from "@/shared/components/Button";
 
 ## Snackbar 表示位置規約
 
-| severity | 表示位置 | anchorOrigin |
-|---|---|---|
-| `error` / `warning` | 上部中央 | `{ vertical: 'top', horizontal: 'center' }` |
-| `success` / `info` | 右下 | `{ vertical: 'bottom', horizontal: 'right' }` |
+| severity            | 表示位置 | anchorOrigin                                  |
+| ------------------- | -------- | --------------------------------------------- |
+| `error` / `warning` | 上部中央 | `{ vertical: 'top', horizontal: 'center' }`   |
+| `success` / `info`  | 右下     | `{ vertical: 'bottom', horizontal: 'right' }` |
 
 詳細は `/frontend-error-patterns` 参照。
 

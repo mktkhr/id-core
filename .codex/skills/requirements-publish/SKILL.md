@@ -45,6 +45,8 @@ description: >-
 2. Issue の状態に応じて分岐:
    - 既存 Issue あり: `gh issue edit {番号} --body "{新本文}"` で同期
    - Issue なし: ユーザーに確認して `gh issue create` で新規作成
+     - **マイルストーン紐付け必須** (`.rulesync/rules/issue-traceability.md` 参照)
+     - `gh api repos/{owner}/{repo}/milestones --jq '.[] | "\(.number) \(.title)"'` で一覧取得し、ユーザーに選択を委ねる
 3. 作成/更新後、Issue 番号・URL を要求文書に反映する
 
 ### 3. ラベル付与 (必須)

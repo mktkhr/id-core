@@ -36,8 +36,13 @@ import { z } from "zod";
 
 export const clientFormSchema = z.object({
   name: z.string().min(1, "クライアント名は必須です").max(255),
-  redirectUris: z.array(z.string().url("有効な URL を入力してください")).min(1, "1 件以上必要です"),
-  description: z.string().max(1000, "1000 文字以内で入力してください").optional(),
+  redirectUris: z
+    .array(z.string().url("有効な URL を入力してください"))
+    .min(1, "1 件以上必要です"),
+  description: z
+    .string()
+    .max(1000, "1000 文字以内で入力してください")
+    .optional(),
 });
 
 export type ClientFormData = z.infer<typeof clientFormSchema>;
@@ -56,7 +61,10 @@ export type ClientFormData = z.infer<typeof clientFormSchema>;
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCreateClient, getGetClientsQueryKey } from "@/api/generated/clients";
+import {
+  useCreateClient,
+  getGetClientsQueryKey,
+} from "@/api/generated/clients";
 import { useAppSnackbar } from "@/shared/hooks/useAppSnackbar";
 import { clientFormSchema, type ClientFormData } from "../schemas";
 
@@ -134,11 +142,11 @@ export const ClientForm = () => {
 
 ### 層の分離
 
-| 層 | 責務 | 実装 |
-|---|---|---|
-| UI バリデーション | フォーム入力チェック | zod + react-hook-form (`schemas.ts`) |
-| API バリデーション | リクエストスキーマ | Orval / OpenAPI 生成 zod |
-| サーバーバリデーション | ビジネスルール | バックエンド API |
+| 層                     | 責務                 | 実装                                 |
+| ---------------------- | -------------------- | ------------------------------------ |
+| UI バリデーション      | フォーム入力チェック | zod + react-hook-form (`schemas.ts`) |
+| API バリデーション     | リクエストスキーマ   | Orval / OpenAPI 生成 zod             |
+| サーバーバリデーション | ビジネスルール       | バックエンド API                     |
 
 ### タイミング
 
@@ -192,7 +200,9 @@ export const useClientEditForm = (clientId: string) => {
 // ❌ NG: useState + 手動バリデーション
 const [name, setName] = useState("");
 const [errors, setErrors] = useState({});
-const validate = () => { if (!name) setErrors({ name: "必須" }); };
+const validate = () => {
+  if (!name) setErrors({ name: "必須" });
+};
 
 // ✅ OK: react-hook-form + zod
 const form = useForm({ resolver: zodResolver(schema) });

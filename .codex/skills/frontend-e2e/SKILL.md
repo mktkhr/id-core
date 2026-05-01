@@ -23,32 +23,32 @@ description: >-
 
 ### 画面プレフィックス例 (id-core サンプル想定)
 
-| 画面 | プレフィックス |
-|---|---|
-| クライアント一覧 | `clients-list` |
-| クライアント詳細 | `clients-detail` |
+| 画面                       | プレフィックス   |
+| -------------------------- | ---------------- |
+| クライアント一覧           | `clients-list`   |
+| クライアント詳細           | `clients-detail` |
 | クライアント作成ダイアログ | `clients-create` |
-| ログイン | `auth-login` |
-| 同意 (consent) | `auth-consent` |
-| ユーザー詳細 | `users-detail` |
+| ログイン                   | `auth-login`     |
+| 同意 (consent)             | `auth-consent`   |
+| ユーザー詳細               | `users-detail`   |
 
 ### 要素種別
 
-| 種別 | 略称 | 対象 |
-|---|---|---|
-| ボタン | `btn` | Button, IconButton |
-| テキスト入力 | `input` | TextField |
-| セレクト | `select` | Select |
-| コンボボックス | `combo` | Autocomplete (freeSolo) |
-| テーブル | `table` | DataGrid, Table |
-| カード | `card` | Card |
-| リンク | `link` | Link, テーブル行クリック |
-| ダイアログ | `dialog` | Dialog |
-| チップ | `chip` | Chip |
-| ラジオ | `radio` | RadioGroup |
-| チェック | `check` | Checkbox |
-| ファイル | `file` | ファイルアップロード |
-| ページネーション | `pager` | Pagination |
+| 種別             | 略称     | 対象                     |
+| ---------------- | -------- | ------------------------ |
+| ボタン           | `btn`    | Button, IconButton       |
+| テキスト入力     | `input`  | TextField                |
+| セレクト         | `select` | Select                   |
+| コンボボックス   | `combo`  | Autocomplete (freeSolo)  |
+| テーブル         | `table`  | DataGrid, Table          |
+| カード           | `card`   | Card                     |
+| リンク           | `link`   | Link, テーブル行クリック |
+| ダイアログ       | `dialog` | Dialog                   |
+| チップ           | `chip`   | Chip                     |
+| ラジオ           | `radio`  | RadioGroup               |
+| チェック         | `check`  | Checkbox                 |
+| ファイル         | `file`   | ファイルアップロード     |
+| ページネーション | `pager`  | Pagination               |
 
 ### 使用例
 

@@ -71,7 +71,7 @@ const isUser = (data: unknown): data is User => {
 };
 
 if (isUser(response.data)) {
-  const user = response.data;  // User 型として扱える
+  const user = response.data; // User 型として扱える
 }
 ```
 
@@ -102,7 +102,9 @@ if (user) {
 // ❌ NG
 const calculate = (x, y) => x + y;
 let result;
-items.map((item) => { /* item の型が推論されない */ });
+items.map((item) => {
+  /* item の型が推論されない */
+});
 
 // ✅ OK
 const calculate = (x: number, y: number): number => x + y;
@@ -131,7 +133,10 @@ type UserSetting = Record<"theme" | "fontSize", string | number>;
 
 ```typescript
 // ❌ NG
-interface User { id: string; name: string; }
+interface User {
+  id: string;
+  name: string;
+}
 
 // ✅ OK
 type User = { id: string; name: string };

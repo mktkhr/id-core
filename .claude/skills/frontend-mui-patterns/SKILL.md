@@ -60,7 +60,7 @@ const MyComponent = () => {
   const handleSave = async () => {
     try {
       await save();
-      showSuccess(t("xxx.save.success"));   // 右下
+      showSuccess(t("xxx.save.success")); // 右下
     } catch {
       showError(t("common.error.unexpected")); // 上部中央
     }
@@ -80,9 +80,18 @@ const MyComponent = () => {
 type DialogState = { isOpen: boolean; targetId: string | null };
 
 const useConfirmDialog = () => {
-  const [dialog, setDialog] = useState<DialogState>({ isOpen: false, targetId: null });
-  const openDialog = useCallback((id: string) => setDialog({ isOpen: true, targetId: id }), []);
-  const closeDialog = useCallback(() => setDialog({ isOpen: false, targetId: null }), []);
+  const [dialog, setDialog] = useState<DialogState>({
+    isOpen: false,
+    targetId: null,
+  });
+  const openDialog = useCallback(
+    (id: string) => setDialog({ isOpen: true, targetId: id }),
+    [],
+  );
+  const closeDialog = useCallback(
+    () => setDialog({ isOpen: false, targetId: null }),
+    [],
+  );
   return { dialog, openDialog, closeDialog };
 };
 ```

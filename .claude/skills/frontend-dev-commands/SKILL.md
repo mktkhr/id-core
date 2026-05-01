@@ -18,31 +18,31 @@ description: >-
 
 ## React + Vite (`examples/go-react/frontend/`)
 
-| コマンド (npm script 例) | 用途 |
-|---|---|
-| `npm run build` | プロダクション用ビルド (TS コンパイル + Vite ビルド) |
-| `npm run lint` | Biome / Oxlint / ESLint のいずれか |
-| `npm run lint:fix` | Lint 自動修正 |
-| `npm run format` | フォーマットチェック |
-| `npm run format:write` | フォーマット修正 |
-| `npm run typecheck` | TypeScript 型チェック (`tsc --noEmit`) |
-| `npm test` / `npm run test` | Vitest ユニットテスト |
-| `npm run test:coverage` | カバレッジレポート |
-| `npm run generate` | Orval 実行 (OpenAPI から hooks / 型 / zod 生成) |
-| `npm run dev` | **Claude 実行禁止** — 開発サーバー起動 |
-| `npm run e2e` | Playwright E2E |
+| コマンド (npm script 例)    | 用途                                                 |
+| --------------------------- | ---------------------------------------------------- |
+| `npm run build`             | プロダクション用ビルド (TS コンパイル + Vite ビルド) |
+| `npm run lint`              | Biome / Oxlint / ESLint のいずれか                   |
+| `npm run lint:fix`          | Lint 自動修正                                        |
+| `npm run format`            | フォーマットチェック                                 |
+| `npm run format:write`      | フォーマット修正                                     |
+| `npm run typecheck`         | TypeScript 型チェック (`tsc --noEmit`)               |
+| `npm test` / `npm run test` | Vitest ユニットテスト                                |
+| `npm run test:coverage`     | カバレッジレポート                                   |
+| `npm run generate`          | Orval 実行 (OpenAPI から hooks / 型 / zod 生成)      |
+| `npm run dev`               | **Claude 実行禁止** — 開発サーバー起動               |
+| `npm run e2e`               | Playwright E2E                                       |
 
 ## Next.js (`examples/kotlin-nextjs/frontend/`)
 
-| コマンド | 用途 |
-|---|---|
-| `npm run build` | プロダクションビルド (`next build`) |
-| `npm run lint` | ESLint (`next lint`) |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | Vitest / Jest |
-| `npm run dev` | **Claude 実行禁止** — `next dev` |
-| `npm run start` | プロダクションサーバー起動 |
-| `npm run e2e` | Playwright (採用していれば) |
+| コマンド            | 用途                                |
+| ------------------- | ----------------------------------- |
+| `npm run build`     | プロダクションビルド (`next build`) |
+| `npm run lint`      | ESLint (`next lint`)                |
+| `npm run typecheck` | `tsc --noEmit`                      |
+| `npm test`          | Vitest / Jest                       |
+| `npm run dev`       | **Claude 実行禁止** — `next dev`    |
+| `npm run start`     | プロダクションサーバー起動          |
+| `npm run e2e`       | Playwright (採用していれば)         |
 
 ## コミット前チェック順序
 

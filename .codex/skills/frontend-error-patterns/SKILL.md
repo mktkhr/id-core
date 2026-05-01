@@ -150,11 +150,16 @@ const isOidcError = (data: unknown): data is OidcError => {
 // 表示時はエンドユーザー向けに翻訳する
 const oidcErrorToMessage = (e: OidcError): string => {
   switch (e.error) {
-    case "invalid_request": return t("auth.error.invalidRequest");
-    case "invalid_client": return t("auth.error.invalidClient");
-    case "invalid_grant": return t("auth.error.invalidGrant");
-    case "access_denied": return t("auth.error.accessDenied");
-    default: return e.error_description ?? t("common.error.unexpected");
+    case "invalid_request":
+      return t("auth.error.invalidRequest");
+    case "invalid_client":
+      return t("auth.error.invalidClient");
+    case "invalid_grant":
+      return t("auth.error.invalidGrant");
+    case "access_denied":
+      return t("auth.error.accessDenied");
+    default:
+      return e.error_description ?? t("common.error.unexpected");
   }
 };
 ```
@@ -175,10 +180,18 @@ console.error("API エラー:", error);
 
 ```typescript
 // ❌ NG: エラーを無視
-try { await op(); } catch { /* 無視 */ }
+try {
+  await op();
+} catch {
+  /* 無視 */
+}
 
 // ❌ NG: エラーを隠蔽
-try { await op(); } catch { return null; }
+try {
+  await op();
+} catch {
+  return null;
+}
 
 // ✅ OK: 明示的に null を返すならログを残す
 try {

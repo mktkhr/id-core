@@ -19,11 +19,11 @@ description: >-
 
 ## 配置ルール
 
-| 種類 | 配置先 | 例 |
-|---|---|---|
-| 共通 UI フック | `src/shared/hooks/` | `useDebounce`, `useAppSnackbar`, `useLocalStorageState` |
-| 機能固有 UI ロジック | `src/views/[feature]/hooks/` | `useClientForm`, `useClientFilter` |
-| API データ取得・更新 | `src/api/generated/` (Orval) | `useGetClients`, `useCreateClient` |
+| 種類                 | 配置先                       | 例                                                      |
+| -------------------- | ---------------------------- | ------------------------------------------------------- |
+| 共通 UI フック       | `src/shared/hooks/`          | `useDebounce`, `useAppSnackbar`, `useLocalStorageState` |
+| 機能固有 UI ロジック | `src/views/[feature]/hooks/` | `useClientForm`, `useClientFilter`                      |
+| API データ取得・更新 | `src/api/generated/` (Orval) | `useGetClients`, `useCreateClient`                      |
 
 ## 基本パターン: UI ロジックフック
 
@@ -95,7 +95,10 @@ export const useDebounce = <T>(value: T, delay: number): T => {
 ### useLocalStorageState
 
 ```typescript
-export const useLocalStorageState = <T>(key: string, initialValue: T): [T, (v: T) => void] => {
+export const useLocalStorageState = <T>(
+  key: string,
+  initialValue: T,
+): [T, (v: T) => void] => {
   const [state, setState] = useState<T>(() => {
     try {
       const item = localStorage.getItem(key);
@@ -105,10 +108,13 @@ export const useLocalStorageState = <T>(key: string, initialValue: T): [T, (v: T
     }
   });
 
-  const setValue = useCallback((value: T) => {
-    setState(value);
-    localStorage.setItem(key, JSON.stringify(value));
-  }, [key]);
+  const setValue = useCallback(
+    (value: T) => {
+      setState(value);
+      localStorage.setItem(key, JSON.stringify(value));
+    },
+    [key],
+  );
 
   return [state, setValue];
 };
@@ -137,8 +143,8 @@ export const useLocalStorageState = <T>(key: string, initialValue: T): [T, (v: T
 
 ## テスト要件
 
-| 配置先 | テスト |
-|---|---|
-| `src/shared/hooks/` | **必須** (カバレッジ 90% 以上) |
-| `src/views/[feature]/hooks/` で 100 行以上 | **推奨** |
-| `src/views/[feature]/hooks/` で 100 行未満 | **任意** |
+| 配置先                                     | テスト                         |
+| ------------------------------------------ | ------------------------------ |
+| `src/shared/hooks/`                        | **必須** (カバレッジ 90% 以上) |
+| `src/views/[feature]/hooks/` で 100 行以上 | **推奨**                       |
+| `src/views/[feature]/hooks/` で 100 行未満 | **任意**                       |
