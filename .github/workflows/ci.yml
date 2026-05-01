@@ -1,0 +1,72 @@
+name: CI
+
+# 最小 CI (M0.1 時点):
+# - core/ の Go ビルド・テスト (race) ・カバレッジ・vet
+# - リポジトリ全体の Markdown フォーマットチェック (prettier)
+#
+# 後続マイルストーンで追加予定:
+# - golangci-lint (M0.2 以降、Lint 強化)
+# - examples/go-react/{backend,frontend} の job (実装着手時)
+# - examples/kotlin-nextjs/{backend,frontend} の job (実装着手時)
+# - rulesync drift check (.rulesync/ 変更時の生成物再生成チェック)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  core-go:
+    name: core/ Go test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          # core/go.sum はまだ存在しない (標準ライブラリのみ) ため cache-dependency-path は省略。
+          # 依存追加 (M0.2 以降) で go.sum が生成された後にキャッシュが有効化される。
+          cache: false
+
+      - name: Build
+        run: make build
+
+      - name: Test (race + coverage)
+        run: make test-cover
+
+      - name: Vet
+        run: make lint
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-coverage
+          path: core/coverage.txt
+          if-no-files-found: warn
+          retention-days: 7
+
+  markdown-format:
+    name: Markdown format check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # prettier のバージョンは ルート Makefile の PRETTIER_VERSION と合わせる。
+      # .prettierignore でリポジトリ管理外 (アーカイブ/ 等) を除外済み。
+      - name: Prettier check
+        run: npx -y prettier@3.8.3 --check .
