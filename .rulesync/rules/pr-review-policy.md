@@ -42,7 +42,7 @@ PR 起票時は `--assignee` と `--label` を必ず指定する。
 
 ```bash
 gh pr create \
-  --assignee @me \
+  --assignee "$(gh api user --jq .login)" \
   --label "種別:..." \
   --label "対象:..." \
   --base main --head <branch> \
@@ -51,7 +51,7 @@ gh pr create \
 
 ### 必須
 
-- **assignee**: 作業者 (`--assignee @me` で十分。CI が実行できるアカウントを指定)
+- **assignee**: 作業者 (自分自身を指定する場合は `gh api user --jq .login` で username を取得。`@me` のような表記は本ファイル §5 の「裸 `@<word>` 禁止」と整合させるため避ける)
 - **labels**:
   - 種別ラベル (必須、いずれか 1 つ): `種別:機能追加` / `種別:バグ` / `種別:改善` / `種別:設計` / `種別:実装` / `種別:調査`
   - 対象ラベル (推奨): `対象:基盤` / `対象:サーバー` / `対象:画面`
@@ -87,7 +87,9 @@ gh api -X POST "repos/{owner}/{repo}/issues/{番号}/labels" -f "labels[]={label
 
 ### 失敗時のリカバリ
 
-ゴミコミットを作ってしまったら **revert ではなく `git reset --hard` + `git push --force-with-lease`** で履歴から完全に消す。revert で「やった事実」を残さない。
+第一選択は **`git revert` または追加コミット**で修正する。`commit` スキルの安全ルール (`reset --hard` / `--force` はユーザー明示指示なしに実行しない) に従う。
+
+ユーザーから「ゴミコミットを消せ」のように**明示承認**があった場合に限り、`git reset --hard` + `git push --force-with-lease` で履歴から消すことが許可される。承認なしで履歴改変系のコマンドを使わない。
 
 ## 4. PR description にアーカイブ・固有事情を書かない
 
@@ -117,15 +119,37 @@ PR / Issue / コメント本文で `@<word>` 形式の文字列を**裸で書か
 
 ### 確認手順
 
-PR description / Issue 本文を書いた直後に grep で確認:
+PR description / Issue 本文を書いた直後に grep で**機械的な補助検知**をする:
 
 ```bash
 echo "$BODY" | grep -nE '(^|[^`])@[A-Za-z0-9_-]+'
 # 出力があるバッククォート外の @ 表記をすべてエスケープ or 言い換え
 ```
 
+> **注意**: この正規表現は完全な Markdown 構文解析ではない (コードブロック境界跨ぎ等で誤判定の可能性あり)。**最終確認は GitHub UI のプレビューで実視する**。grep は補助。
+
 ## 6. PR タイトル / コミットメッセージ規約
 
 - コミット規約は `.rulesync/skills/commit/SKILL.md` 参照 (`{type}:{emoji} {対象}`)
 - PR タイトルもコミット規約に揃える (`feat:✨` / `fix:🐛` / `docs:📝` / `chore:🔧` / `refactor:♻️` / `test:✅`)
 - 関連 Issue がある場合は PR 本文に `Closes #N` を含める
+
+## 7. PR description のチェックリストを埋める
+
+PR description に書いた **Test plan / チェックリスト**は、マージする前に**実際に確認した上で `[ ]` を `[x]` に書き換える**。空のままマージしない。
+
+### ルール
+
+- 確認していないチェック項目を残したままマージしない
+- 確認できなかった項目は **理由を明記して `[~]` 等で示す** (例: `[~] gitleaks 誤検知なし → 該当差分なしのためスキップ`)
+- **形骸化したチェックリストは書かない**。書くなら必ず埋める。埋められない項目は最初から書かない
+- `gh pr merge` を打つ直前に PR description を見直し、未チェック項目があれば先に対処する
+
+### 後追い修正方法
+
+```bash
+# 現在の本文を取得 → 編集 → 流し込む
+gh api "repos/{owner}/{repo}/pulls/{番号}" --jq .body > /tmp/pr-body.md
+# /tmp/pr-body.md を編集して [ ] → [x] に
+gh api -X PATCH "repos/{owner}/{repo}/pulls/{番号}" -f body="$(cat /tmp/pr-body.md)"
+```
