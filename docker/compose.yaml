@@ -1,0 +1,80 @@
+name: id-core
+
+services:
+  postgres:
+    image: postgres:18
+    container_name: id_core_db
+    restart: always
+    volumes:
+      - type: volume
+        source: id_core_db_data
+        target: /var/lib/postgresql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -h localhost",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - ${POSTGRES_HOST_PORT}:5432
+    networks:
+      - id_core_network
+
+  valkey:
+    image: valkey/valkey:9.0
+    container_name: id_core_valkey
+    restart: always
+    volumes:
+      - type: volume
+        source: id_core_cache_data
+        target: /data
+    ports:
+      - ${VALKEY_HOST_PORT}:6379
+    command: >
+      valkey-server
+      --appendonly yes
+      --requirepass ${VALKEY_PASSWORD}
+    networks:
+      - id_core_network
+
+  idp-mock:
+    image: ghcr.io/navikt/mock-oauth2-server:3.0.1
+    container_name: id_core_idp_mock
+    restart: always
+    ports:
+      - ${IDP_MOCK_HOST_PORT}:8080
+    networks:
+      - id_core_network
+
+  adminer:
+    image: adminer:5.4.2
+    container_name: id_core_adminer
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - ${ADMINER_HOST_PORT}:8080
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    networks:
+      - id_core_network
+
+volumes:
+  id_core_db_data:
+    name: id_core_db_data
+  id_core_cache_data:
+    name: id_core_cache_data
+
+networks:
+  id_core_network:
+    name: id_core_network
+    driver: bridge

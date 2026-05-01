@@ -1,0 +1,4 @@
+default_permissions = "rulesync"
+
+[mcp_servers]
+[permissions.rulesync]
