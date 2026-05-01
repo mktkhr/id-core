@@ -73,7 +73,7 @@ SELECT id, name, redirect_uris FROM clients WHERE id = $1;
 ## 生成
 
 - 生成先: `internal/generated/sqlc/` (**手動編集禁止**)
-- コマンド: `make sqlc-generate` (db/queries/*.sql から Go コード生成)
+- コマンド: `make sqlc-generate` (db/queries/\*.sql から Go コード生成)
 
 ## Repository 実装パターン (書き込み系)
 

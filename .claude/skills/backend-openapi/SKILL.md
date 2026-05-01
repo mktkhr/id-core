@@ -144,7 +144,15 @@ required:
 properties:
   error:
     type: string
-    enum: [invalid_request, invalid_client, invalid_grant, unauthorized_client, unsupported_grant_type, invalid_scope]
+    enum:
+      [
+        invalid_request,
+        invalid_client,
+        invalid_grant,
+        unauthorized_client,
+        unsupported_grant_type,
+        invalid_scope,
+      ]
   error_description:
     type: string
   error_uri:
@@ -156,17 +164,17 @@ properties:
 
 ## ステータスコード方針
 
-| コード | 用途 |
-|---|---|
-| 200 | 取得・更新成功 |
-| 201 | 作成成功 |
-| 204 | 削除成功 / レスポンスボディ不要 |
-| 400 | バリデーションエラー / OIDC `invalid_request` |
-| 401 | 認証失敗 / OIDC `invalid_client` |
-| 403 | 認可拒否 |
-| 404 | リソース未存在 |
-| 409 | 競合 (重複作成) |
-| 500 | サーバー内部エラー |
+| コード | 用途                                          |
+| ------ | --------------------------------------------- |
+| 200    | 取得・更新成功                                |
+| 201    | 作成成功                                      |
+| 204    | 削除成功 / レスポンスボディ不要               |
+| 400    | バリデーションエラー / OIDC `invalid_request` |
+| 401    | 認証失敗 / OIDC `invalid_client`              |
+| 403    | 認可拒否                                      |
+| 404    | リソース未存在                                |
+| 409    | 競合 (重複作成)                               |
+| 500    | サーバー内部エラー                            |
 
 ## コード生成
 

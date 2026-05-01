@@ -76,10 +76,10 @@ Presentation 層 → Application 層 → Domain 層 ← Infrastructure 層
 
 ## CQRS 適用
 
-| 種別 | インターフェース定義 | 実装 |
-|---|---|---|
+| 種別     | インターフェース定義                    | 実装                         |
+| -------- | --------------------------------------- | ---------------------------- |
 | 書き込み | `domain/repository/` + `domain/entity/` | `infrastructure/repository/` |
-| 読み取り | `application/query/` | `infrastructure/query/` |
+| 読み取り | `application/query/`                    | `infrastructure/query/`      |
 
 ## 共通インフラ (Go)
 

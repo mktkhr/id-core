@@ -21,12 +21,12 @@ description: >-
 依存関係: Presentation → Application → Domain ← Infrastructure
 ```
 
-| 層 | 責務 |
-|---|---|
-| Domain | エンティティ、リポジトリインターフェース、機能間 DTO |
-| Application | ユースケース、クエリインターフェース (CQRS) |
-| Infrastructure | DB 実装 (Repository = 書き込み、Query = 読み取り) |
-| Presentation | HTTP ハンドラー、リクエスト/レスポンス変換 |
+| 層             | 責務                                                 |
+| -------------- | ---------------------------------------------------- |
+| Domain         | エンティティ、リポジトリインターフェース、機能間 DTO |
+| Application    | ユースケース、クエリインターフェース (CQRS)          |
+| Infrastructure | DB 実装 (Repository = 書き込み、Query = 読み取り)    |
+| Presentation   | HTTP ハンドラー、リクエスト/レスポンス変換           |
 
 ## 実装順序 (共通)
 
@@ -289,14 +289,14 @@ class ClientController(
 
 ## エラーレスポンス
 
-| 状況 | HTTP | レスポンス |
-|---|---|---|
-| バリデーション失敗 | 400 | `{"errors": [...]}` または OIDC `{"error": "invalid_request"}` |
-| 認証失敗 | 401 | `{"error": "invalid_client"}` (OIDC) など |
-| 認可拒否 | 403 | `{"errors": [{"code": "forbidden", "message": "..."}]}` |
-| リソース未存在 | 404 | `{"errors": [{"code": "not_found", ...}]}` |
-| 競合 | 409 | `{"errors": [{"code": "conflict", ...}]}` |
-| 内部エラー | 500 | `{"errors": [{"code": "internal", ...}]}` |
+| 状況               | HTTP | レスポンス                                                     |
+| ------------------ | ---- | -------------------------------------------------------------- |
+| バリデーション失敗 | 400  | `{"errors": [...]}` または OIDC `{"error": "invalid_request"}` |
+| 認証失敗           | 401  | `{"error": "invalid_client"}` (OIDC) など                      |
+| 認可拒否           | 403  | `{"errors": [{"code": "forbidden", "message": "..."}]}`        |
+| リソース未存在     | 404  | `{"errors": [{"code": "not_found", ...}]}`                     |
+| 競合               | 409  | `{"errors": [{"code": "conflict", ...}]}`                      |
+| 内部エラー         | 500  | `{"errors": [{"code": "internal", ...}]}`                      |
 
 ## チェックリスト
 
