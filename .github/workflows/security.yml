@@ -64,7 +64,8 @@ jobs:
         run: go install github.com/securego/gosec/v2/cmd/gosec@v2.26.1
 
       - name: Run gosec
-        run: gosec ./...
+        # $GOPATH/bin が PATH に入る前提に依存しないよう、絶対パスで呼ぶ。
+        run: $(go env GOPATH)/bin/gosec ./...
 
   secret-detection:
     name: secret detection (gitleaks)
