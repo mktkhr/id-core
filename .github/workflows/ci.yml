@@ -71,13 +71,11 @@ jobs:
           go-version-file: core/go.mod
           cache: false
 
-      # `go mod tidy` 実行後に go.mod / go.sum が変更されないことを検証する。
-      # 不整合がある場合 (依存追加忘れ、未使用依存の残置など) は CI を fail させる。
-      - name: Run go mod tidy
-        run: go mod tidy
-
+      # Go 1.23+ の `go mod tidy -diff` を使い、go.mod / go.sum に差分が出る場合は非ゼロ終了する。
+      # この方式なら go.sum 非存在時 (依存ゼロ) でも安定して判定できる。
+      # 不整合 (依存追加忘れ、未使用依存の残置など) は CI を fail させる。
       - name: Verify go.mod and go.sum are tidy
-        run: git diff --exit-code -- go.mod go.sum
+        run: go mod tidy -diff
 
   markdown-format:
     name: Markdown format check

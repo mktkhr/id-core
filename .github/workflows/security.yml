@@ -42,6 +42,9 @@ jobs:
   gosec:
     name: core/ gosec
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,12 +55,13 @@ jobs:
           go-version-file: core/go.mod
           cache: false
 
-      # gosec 公式 Action を使用。CVE / 脆弱性パターンを検出した場合 fail。
-      # SARIF を出して Security tab に反映することもできるが、現状は最小構成。
+      # gosec 公式 Action。CVE / 脆弱性パターンを検出した場合 fail。
+      # @v2 は major tag 固定 (mutable)。供給網リスクをさらに下げたい場合は commit SHA pin + Dependabot 運用に移行する (将来課題)。
+      # working-directory が反映されないため、args で core/... を明示的に指定する。
       - name: Run gosec
-        uses: securego/gosec@master
+        uses: securego/gosec@v2
         with:
-          args: ./...
+          args: ./core/...
         env:
           GOMODCACHE: /tmp/gomodcache
 
