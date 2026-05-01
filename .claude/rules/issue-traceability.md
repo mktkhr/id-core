@@ -123,3 +123,15 @@ gh issue comment {番号} --body "{本文}"
 
 モノレポなので PR 本文に `Closes #N` を書けば自動 Close される (クロスプロジェクトの制約なし)。
 親要求 Issue (`docs/requirements/{N}/`) は実装完了後、ユーザーが手動で Close する。
+
+## PR 運用ポリシー
+
+PR の作成・レビュー・マージは `.rulesync/rules/pr-review-policy.md` に集約済み。要点:
+
+- **Codex レビュー必須** (`/pr-codex-review {番号}`)。ゲート: CRITICAL=0 / HIGH=0 / MEDIUM<3
+- **assignee + labels (種別) 必須**
+- **バージョン変更 (go.mod / package.json / Action uses 等) は事前承認必須**
+- **PR description にアーカイブ参照や固有事情を書かない**
+- **裸の `@<word>` 表記 (誤メンション源) 禁止**
+
+詳細は `pr-review-policy.md` を参照。
