@@ -52,19 +52,19 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
+          # core/go.mod 由来の Go バージョンをインストール。
+          # gosec 公式 Action (securego/gosec@v2.26.1) は内蔵 Go が固定で go.mod の要求 (例 1.26.2) と合わない場合があるため、
+          # Action ではなく go install + 直接実行に切り替えている。
           go-version-file: core/go.mod
           cache: false
 
-      # gosec 公式 Action。CVE / 脆弱性パターンを検出した場合 fail。
-      # securego/gosec は major tag (@v2) を提供しないため patch tag を直接固定する。
-      # 供給網リスクをさらに下げたい場合は commit SHA pin + Dependabot 運用に移行する (将来課題)。
-      # working-directory が反映されないため、args で core/... を明示的に指定する。
+      # gosec を go install で導入 (Action 内蔵 Go に縛られないため)。
+      # バージョンは go install 用に明示固定。@latest は使わない (供給網のため)。
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@v2.26.1
+
       - name: Run gosec
-        uses: securego/gosec@v2.26.1
-        with:
-          args: ./core/...
-        env:
-          GOMODCACHE: /tmp/gomodcache
+        run: gosec ./...
 
   secret-detection:
     name: secret detection (gitleaks)
