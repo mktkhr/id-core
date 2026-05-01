@@ -12,9 +12,11 @@ targets:
 ## 前提として読み込む context
 
 **必須** (必ず読む):
+
 - 対象の `docs/requirements/{N}/index.md` (該当論点セクションのみで足りる場合は部分読み可)
 
 **条件付き** (該当する場合のみ読む):
+
 - 論点が**認可関連**: `docs/context/authorization/matrix.md`
 
 **読み込まない**: 論点に関係ない context は読まない。

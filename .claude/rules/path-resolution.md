@@ -9,22 +9,22 @@
 
 ## モノレポ内の主要パス
 
-| 用途 | パス |
-|---|---|
-| OIDC OP 本体 (Go) | `core/` |
-| サンプル A バックエンド (Go) | `examples/go-react/backend/` |
-| サンプル A フロントエンド (React) | `examples/go-react/frontend/` |
-| サンプル B バックエンド (Kotlin/Spring Boot) | `examples/kotlin-nextjs/backend/` |
-| サンプル B フロントエンド (Next.js) | `examples/kotlin-nextjs/frontend/` |
-| ドキュメント | `docs/` |
-| コンテキスト集約 | `docs/context/` |
-| 認可マトリクス正本 | `docs/context/authorization/matrix.md` |
-| 要求文書 | `docs/requirements/{N}/` |
-| 設計書 | `docs/specs/{N}/` |
-| ADR | `docs/adr/` |
-| テンプレート | `docs/templates/` |
-| 開発環境 | `docker/` |
-| ルール・スキル正本 | `.rulesync/` |
+| 用途                                         | パス                                   |
+| -------------------------------------------- | -------------------------------------- |
+| OIDC OP 本体 (Go)                            | `core/`                                |
+| サンプル A バックエンド (Go)                 | `examples/go-react/backend/`           |
+| サンプル A フロントエンド (React)            | `examples/go-react/frontend/`          |
+| サンプル B バックエンド (Kotlin/Spring Boot) | `examples/kotlin-nextjs/backend/`      |
+| サンプル B フロントエンド (Next.js)          | `examples/kotlin-nextjs/frontend/`     |
+| ドキュメント                                 | `docs/`                                |
+| コンテキスト集約                             | `docs/context/`                        |
+| 認可マトリクス正本                           | `docs/context/authorization/matrix.md` |
+| 要求文書                                     | `docs/requirements/{N}/`               |
+| 設計書                                       | `docs/specs/{N}/`                      |
+| ADR                                          | `docs/adr/`                            |
+| テンプレート                                 | `docs/templates/`                      |
+| 開発環境                                     | `docker/`                              |
+| ルール・スキル正本                           | `.rulesync/`                           |
 
 ## スキル / プロンプトでの参照
 

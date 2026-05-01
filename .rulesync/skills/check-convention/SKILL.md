@@ -25,15 +25,15 @@ targets:
 
 `docs/context/` 配下の該当ファイルを読み、既存規約の概要を把握する:
 
-| 観点 | 参照先 |
-|---|---|
-| バックエンド全般 | `docs/context/backend/conventions.md`, `docs/context/backend/patterns.md` |
-| バックエンドの実体一覧 (テーブル / API / エラーコード / マイグレーション) | `docs/context/backend/registry.md` |
-| フロントエンド全般 | `docs/context/frontend/conventions.md`, `docs/context/frontend/patterns.md` |
-| フロントエンドの画面 / data-testid 一覧 | `docs/context/frontend/registry.md` |
-| 認可 | `docs/context/authorization/matrix.md` (正本) + `.rulesync/rules/authorization-matrix.md` |
-| アプリ全体構成 | `docs/context/app/architecture.md` |
-| テスト | `docs/context/testing/backend.md`, `docs/context/testing/e2e.md` |
+| 観点                                                                      | 参照先                                                                                    |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| バックエンド全般                                                          | `docs/context/backend/conventions.md`, `docs/context/backend/patterns.md`                 |
+| バックエンドの実体一覧 (テーブル / API / エラーコード / マイグレーション) | `docs/context/backend/registry.md`                                                        |
+| フロントエンド全般                                                        | `docs/context/frontend/conventions.md`, `docs/context/frontend/patterns.md`               |
+| フロントエンドの画面 / data-testid 一覧                                   | `docs/context/frontend/registry.md`                                                       |
+| 認可                                                                      | `docs/context/authorization/matrix.md` (正本) + `.rulesync/rules/authorization-matrix.md` |
+| アプリ全体構成                                                            | `docs/context/app/architecture.md`                                                        |
+| テスト                                                                    | `docs/context/testing/backend.md`, `docs/context/testing/e2e.md`                          |
 
 **大半のケースはこれだけで回答できる。ソースコードは読まない。**
 
@@ -47,13 +47,13 @@ targets:
 
 #### ソース確認が必要な場合の対象
 
-| 観点 | 確認先 |
-|---|---|
-| DB / マイグレーション | `core/db/migrations/*.up.sql` |
-| API | `core/api/openapi.yaml` |
-| エラー定義 | `core/internal/apperror/` (実装後) |
-| 認可ポリシー | `docs/context/authorization/matrix.md` (正本) + `core/db/migrations/*authz*.up.sql` |
-| OIDC OP エンドポイント | `core/internal/features/oidc/` (実装後) |
+| 観点                   | 確認先                                                                              |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| DB / マイグレーション  | `core/db/migrations/*.up.sql`                                                       |
+| API                    | `core/api/openapi.yaml`                                                             |
+| エラー定義             | `core/internal/apperror/` (実装後)                                                  |
+| 認可ポリシー           | `docs/context/authorization/matrix.md` (正本) + `core/db/migrations/*authz*.up.sql` |
+| OIDC OP エンドポイント | `core/internal/features/oidc/` (実装後)                                             |
 
 **注意**: ソースを読む場合も、関連するファイルだけをピンポイントで読む。全ファイルを一括で読まない。
 

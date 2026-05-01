@@ -11,9 +11,11 @@ description: >-
 ## 前提として読み込む context
 
 **必須** (必ず読む):
+
 - 対象の `docs/specs/{N}/index.md` — テスト観点を生成する元
 
 **条件付き** (生成する観点の種類に応じて該当時のみ読む):
+
 - バックエンドテスト観点を生成する場合: `docs/context/testing/backend.md`
 - E2E テスト観点を生成する場合: `docs/context/testing/e2e.md` + `docs/context/frontend/registry.md` (data-testid)
 - 認可テスト観点に踏み込む場合: `docs/context/authorization/matrix.md`
@@ -110,18 +112,18 @@ description: >-
 
 **要素種別の略称**:
 
-| 種別 | 略称 | 対象 |
-|---|---|---|
-| ボタン | `btn` | Button, IconButton |
-| テキスト入力 | `input` | TextField |
-| セレクト | `select` | Select |
-| コンボボックス | `combo` | Autocomplete |
-| テーブル | `table` | DataGrid, Table |
-| ダイアログ | `dialog` | Dialog |
-| リンク | `link` | Link |
-| ページネーション | `pager` | Pagination |
-| チェック | `check` | Checkbox |
-| ラジオ | `radio` | RadioGroup |
+| 種別             | 略称     | 対象               |
+| ---------------- | -------- | ------------------ |
+| ボタン           | `btn`    | Button, IconButton |
+| テキスト入力     | `input`  | TextField          |
+| セレクト         | `select` | Select             |
+| コンボボックス   | `combo`  | Autocomplete       |
+| テーブル         | `table`  | DataGrid, Table    |
+| ダイアログ       | `dialog` | Dialog             |
+| リンク           | `link`   | Link               |
+| ページネーション | `pager`  | Pagination         |
+| チェック         | `check`  | Checkbox           |
+| ラジオ           | `radio`  | RadioGroup         |
 
 **付与基準**: ボタン・フォーム入力・テーブル・ダイアログ・ページネーション操作は MUST。テーブル行・エラー表示は SHOULD。
 

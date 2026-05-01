@@ -5,10 +5,10 @@
 
 このリポジトリのフロントエンドは検証用サンプル 2 つ:
 
-| サンプル | スタック | 検証する消費パターン |
-|---|---|---|
-| `examples/go-react/frontend` | React (SPA) | ブラウザ完結 / Authorization Code + PKCE |
-| `examples/kotlin-nextjs/frontend` | Next.js | BFF / SSR / Cookie ベースのセッション |
+| サンプル                          | スタック    | 検証する消費パターン                     |
+| --------------------------------- | ----------- | ---------------------------------------- |
+| `examples/go-react/frontend`      | React (SPA) | ブラウザ完結 / Authorization Code + PKCE |
+| `examples/kotlin-nextjs/frontend` | Next.js     | BFF / SSR / Cookie ベースのセッション    |
 
 ## 共通規約
 

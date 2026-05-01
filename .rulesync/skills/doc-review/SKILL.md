@@ -14,9 +14,11 @@ targets:
 ## 前提として読み込む context
 
 **必須** (必ず読む):
+
 - レビュー対象のドキュメント
 
 **条件付き** (レビュー対象に含まれる領域に応じて該当時のみ読む):
+
 - DB/API/エラー設計を含む: `docs/context/backend/{conventions,patterns,registry}.md` のうち**該当する 1〜2 ファイルのみ**
 - 画面設計を含む: `docs/context/frontend/{conventions,patterns,registry}.md` のうち**該当する 1〜2 ファイルのみ**
 - テスト観点を含む: `docs/context/testing/{backend,e2e}.md` のうち**該当する 1 ファイルのみ**
@@ -97,6 +99,7 @@ targets:
 ## 自動修正対象
 
 以下のみ自動修正可:
+
 - typo (誤字脱字)
 - リンク切れ
 - 見出し整形 (Markdown 見出しレベル・番号揃え)

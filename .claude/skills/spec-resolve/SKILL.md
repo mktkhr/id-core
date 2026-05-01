@@ -11,9 +11,11 @@ description: >-
 ## 前提として読み込む context
 
 **必須** (必ず読む):
+
 - 対象の `docs/specs/{N}/index.md` — 論点解決対象 (該当論点セクションのみで足りる場合は部分読みでも可)
 
 **条件付き** (論点の領域に応じて該当時のみ読む):
+
 - 論点が**認可関連**: `docs/context/authorization/matrix.md` (突合必須・推測禁止)
 - 論点が**DB / API**: `docs/context/backend/{registry,conventions}.md`
 - 論点が**画面 / フロント**: `docs/context/frontend/{registry,conventions}.md`

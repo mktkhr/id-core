@@ -33,29 +33,29 @@ description: '要求定義を端から端まで実行する。"requirements-full
 
 要求文書を「設計着手 OK」にするには以下を**全て**満たす必要がある:
 
-| 項目 | 閾値 |
-|---|---|
-| `requirements-validate` | 合格 |
-| `requirements-review` CRITICAL | 0 件 |
-| `requirements-review` HIGH | 0 件 |
-| `requirements-review` MEDIUM | 3 件未満 (0/1/2 件のみ可) |
+| 項目                           | 閾値                      |
+| ------------------------------ | ------------------------- |
+| `requirements-validate`        | 合格                      |
+| `requirements-review` CRITICAL | 0 件                      |
+| `requirements-review` HIGH     | 0 件                      |
+| `requirements-review` MEDIUM   | 3 件未満 (0/1/2 件のみ可) |
 
 **未達なら次工程に進まない。** ユーザーが「そのまま進めて」と言ってもゲートは緩めない。
 
 ## フェーズ
 
-| # | フェーズ | 対応スキル | 停止条件 |
-|---|---|---|---|
-| 1 | 受付 | `/requirements-create` | 入力起点が不明 |
-| 2 | 下書き | `/requirements-create` | 必須セクション不足 |
-| 3 | スコープ / 成功条件 | 手動更新 | In/Out 不明 |
-| 4 | 業務仕様 | 手動更新 | 業務ルールに曖昧さ |
-| 5 | バリデーション方針 | 手動更新 | 例外時の扱い不明 |
-| 6 | 権限要件 | マスター突合 | マスター差分 |
-| 7 | 監査 / 非機能 | 手動更新 | 最低要件未定 |
-| 8 | 未決事項解消 | `/requirements-resolve` | 未決が残存 |
-| 9 | 最終レビュー | `/requirements-validate` + `/requirements-review` | 設計着手条件を満たさない or 重大指摘あり |
-| 10 | 差分整理 | `/requirements-track` | 変更履歴の追記漏れ |
+| #   | フェーズ            | 対応スキル                                        | 停止条件                                 |
+| --- | ------------------- | ------------------------------------------------- | ---------------------------------------- |
+| 1   | 受付                | `/requirements-create`                            | 入力起点が不明                           |
+| 2   | 下書き              | `/requirements-create`                            | 必須セクション不足                       |
+| 3   | スコープ / 成功条件 | 手動更新                                          | In/Out 不明                              |
+| 4   | 業務仕様            | 手動更新                                          | 業務ルールに曖昧さ                       |
+| 5   | バリデーション方針  | 手動更新                                          | 例外時の扱い不明                         |
+| 6   | 権限要件            | マスター突合                                      | マスター差分                             |
+| 7   | 監査 / 非機能       | 手動更新                                          | 最低要件未定                             |
+| 8   | 未決事項解消        | `/requirements-resolve`                           | 未決が残存                               |
+| 9   | 最終レビュー        | `/requirements-validate` + `/requirements-review` | 設計着手条件を満たさない or 重大指摘あり |
+| 10  | 差分整理            | `/requirements-track`                             | 変更履歴の追記漏れ                       |
 
 ## 完了条件
 

@@ -13,9 +13,11 @@ targets:
 ## 前提として読み込む context
 
 **必須** (必ず読む):
+
 - `docs/templates/requirements/template.md` — 要求文書テンプレート
 
 **条件付き** (該当する場合のみ読む):
+
 - 要求の入力に**認可記述あり**: `docs/context/authorization/matrix.md` (突合必須・推測禁止)
 - 初回起動 / プロジェクトのスコープが把握できていない: `docs/context/app/architecture.md` (要求がスコープ内かの判定)
 

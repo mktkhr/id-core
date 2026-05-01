@@ -11,9 +11,11 @@ description: >-
 ## 前提として読み込む context
 
 **必須** (必ず読む):
+
 - 対象の `docs/specs/{N}/index.md` — 図の元情報
 
 **条件付き** (該当する場合のみ読む):
+
 - シーケンス図でアーキテクチャ規約に従いたい (参加者・トランザクション境界等): `docs/context/backend/patterns.md`
 - 認可フローを図に含める: `docs/context/authorization/matrix.md`
 

@@ -9,11 +9,12 @@ description: '要求文書の変更履歴と差分を追記する。"requirement
 ## 前提として読み込む context
 
 **必須** (必ず読む):
+
 - 対象の `docs/requirements/{N}/index.md` (既存「変更履歴」セクションのみで足りる場合は部分読み可)
 
 **条件付き**: なし
 
-**読み込まない**: context/* 配下は不要。差分の追記のみが目的。
+**読み込まない**: context/\* 配下は不要。差分の追記のみが目的。
 
 詳細は `docs/context/README.md` の対応表を参照。
 

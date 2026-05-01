@@ -9,10 +9,12 @@ description: '要求から設計書の雛形を生成する。"設計書作成",
 ## 前提として読み込む context
 
 **必須** (必ず読む):
+
 - `docs/templates/specs/template.md` — 雛形生成の元
 - 該当する `docs/requirements/{N}/index.md` — 要求起点の場合
 
 **条件付き** (該当する場合のみ読む):
+
 - 要求 / 対象機能に**認可記述あり**: `docs/context/authorization/matrix.md` (突合必須・推測禁止)
 - 初回起動 / プロジェクト全体像が把握できていない: `docs/context/app/architecture.md`
 

@@ -21,21 +21,21 @@ targets:
 
 ### Type + Emoji
 
-| Type | 用途 | Emoji |
-|---|---|---|
-| feat | 新機能 | ✨ |
-| fix | バグ修正・誤記修正・パス修正・不整合修正 | 🐛 |
-| docs | 設計書・テンプレート・スキル・ADR・README・context | 📝 |
-| refactor | リネーム・構造変更 (内容変更なし) | ♻️ |
-| chore | 設定・hooks・gitignore・Makefile 等 | 🔧 |
-| test | テスト追加・修正 | ✅ |
+| Type     | 用途                                               | Emoji |
+| -------- | -------------------------------------------------- | ----- |
+| feat     | 新機能                                             | ✨    |
+| fix      | バグ修正・誤記修正・パス修正・不整合修正           | 🐛    |
+| docs     | 設計書・テンプレート・スキル・ADR・README・context | 📝    |
+| refactor | リネーム・構造変更 (内容変更なし)                  | ♻️    |
+| chore    | 設定・hooks・gitignore・Makefile 等                | 🔧    |
+| test     | テスト追加・修正                                   | ✅    |
 
 使用頻度低 (必要に応じて):
 
-| Type | 用途 | Emoji |
-|---|---|---|
-| add | 新規ファイル追加 (機能追加に該当しないとき) | ✨ |
-| remove | ファイル削除 | 🗑️ |
+| Type   | 用途                                        | Emoji |
+| ------ | ------------------------------------------- | ----- |
+| add    | 新規ファイル追加 (機能追加に該当しないとき) | ✨    |
+| remove | ファイル削除                                | 🗑️    |
 
 ## 手順
 
@@ -50,25 +50,25 @@ targets:
 
 ## 分割基準
 
-| 関心事 | 例 |
-|---|---|
-| id-core 本体 | `core/cmd/`, `core/internal/`, `core/db/`, `core/api/` 等 |
-| サンプル backend (Go) | `examples/go-react/backend/` |
-| サンプル backend (Kotlin) | `examples/kotlin-nextjs/backend/` |
-| サンプル frontend (React) | `examples/go-react/frontend/` |
-| サンプル frontend (Next.js) | `examples/kotlin-nextjs/frontend/` |
-| 設計書本体 | `docs/specs/{N}/index.md` |
-| 実装プロンプト | `docs/specs/{N}/prompts/` |
-| 要求文書 | `docs/requirements/{N}/` |
-| 認可マトリクス更新 | `docs/context/authorization/matrix.md` |
-| context (規約・パターン・registry) | `docs/context/{backend,frontend,testing}/*.md` |
-| アーキテクチャ | `docs/context/app/architecture.md` |
-| テンプレート | `docs/templates/` |
-| スキル・ルール (rulesync 正本) | `.rulesync/skills/`, `.rulesync/rules/` |
-| Claude Code 生成物 | `.claude/` (rulesync で生成された場合) |
-| ADR | `docs/adr/` |
-| README / CLAUDE.md | 各ファイル |
-| docker / Makefile | `docker/`, `Makefile` |
+| 関心事                             | 例                                                        |
+| ---------------------------------- | --------------------------------------------------------- |
+| id-core 本体                       | `core/cmd/`, `core/internal/`, `core/db/`, `core/api/` 等 |
+| サンプル backend (Go)              | `examples/go-react/backend/`                              |
+| サンプル backend (Kotlin)          | `examples/kotlin-nextjs/backend/`                         |
+| サンプル frontend (React)          | `examples/go-react/frontend/`                             |
+| サンプル frontend (Next.js)        | `examples/kotlin-nextjs/frontend/`                        |
+| 設計書本体                         | `docs/specs/{N}/index.md`                                 |
+| 実装プロンプト                     | `docs/specs/{N}/prompts/`                                 |
+| 要求文書                           | `docs/requirements/{N}/`                                  |
+| 認可マトリクス更新                 | `docs/context/authorization/matrix.md`                    |
+| context (規約・パターン・registry) | `docs/context/{backend,frontend,testing}/*.md`            |
+| アーキテクチャ                     | `docs/context/app/architecture.md`                        |
+| テンプレート                       | `docs/templates/`                                         |
+| スキル・ルール (rulesync 正本)     | `.rulesync/skills/`, `.rulesync/rules/`                   |
+| Claude Code 生成物                 | `.claude/` (rulesync で生成された場合)                    |
+| ADR                                | `docs/adr/`                                               |
+| README / CLAUDE.md                 | 各ファイル                                                |
+| docker / Makefile                  | `docker/`, `Makefile`                                     |
 
 ユーザーから「めっちゃ細かく」等の指示があればそれに従う。
 

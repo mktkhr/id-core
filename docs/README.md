@@ -4,13 +4,13 @@ id-core プロジェクトの設計・要件・コンテキストを管理する
 
 ## ディレクトリ
 
-| パス | 役割 |
-|---|---|
-| `context/` | 実装コンテキスト集約 (規約・パターン・レジストリ・認可マトリクス正本) |
-| `requirements/{N}/` | 要求文書 (Issue 番号別) |
-| `specs/{N}/` | 設計書 (Issue 番号別) |
-| `adr/` | Architecture Decision Records |
-| `templates/` | テンプレート (adr / requirements / specs) |
+| パス                | 役割                                                                  |
+| ------------------- | --------------------------------------------------------------------- |
+| `context/`          | 実装コンテキスト集約 (規約・パターン・レジストリ・認可マトリクス正本) |
+| `requirements/{N}/` | 要求文書 (Issue 番号別)                                               |
+| `specs/{N}/`        | 設計書 (Issue 番号別)                                                 |
+| `adr/`              | Architecture Decision Records                                         |
+| `templates/`        | テンプレート (adr / requirements / specs)                             |
 
 ## 認可マトリクス
 
@@ -28,9 +28,9 @@ id-core プロジェクトの設計・要件・コンテキストを管理する
 
 ## 用語
 
-| 用語 | 意味 |
-|---|---|
+| 用語                 | 意味                                                           |
+| -------------------- | -------------------------------------------------------------- |
 | OP (OpenID Provider) | OIDC で ID を発行する側。本プロジェクトでは id-core がこの立場 |
-| RP (Relying Party) | OIDC で ID を受け取る側。id-core は上流 IdP に対しては RP |
-| 上流 IdP | id-core が本人確認を委譲する先の OIDC IdP |
-| 下流プロダクト | id-core を OIDC OP として利用する側 (サンプルアプリ含む) |
+| RP (Relying Party)   | OIDC で ID を受け取る側。id-core は上流 IdP に対しては RP      |
+| 上流 IdP             | id-core が本人確認を委譲する先の OIDC IdP                      |
+| 下流プロダクト       | id-core を OIDC OP として利用する側 (サンプルアプリ含む)       |

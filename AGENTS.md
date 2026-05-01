@@ -1,8 +1,10 @@
 Please also reference the following rules as needed. The list below is provided in TOON format, and `@` stands for the project root directory.
 
-rules[3]{path}:
+rules[5]{path}:
   @.codex/memories/authorization-matrix.md
+  @.codex/memories/codex-delegation.md
   @.codex/memories/design-workflow.md
+  @.codex/memories/issue-traceability.md
   @.codex/memories/path-resolution.md
 
 # id-core モノレポ — ルートルール

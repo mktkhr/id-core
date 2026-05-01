@@ -9,9 +9,11 @@ description: '要求文書をレビューして重大な不足や矛盾を検出
 ## 前提として読み込む context
 
 **必須** (必ず読む):
+
 - 対象の `docs/requirements/{N}/index.md`
 
 **条件付き** (該当する場合のみ読む):
+
 - 要求に**認可記述あり**: `docs/context/authorization/matrix.md` (突合のため)
 
 **読み込まない**: 上記以外の context は読まない。
