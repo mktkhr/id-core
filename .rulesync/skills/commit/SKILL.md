@@ -85,7 +85,7 @@ targets:
 
 コミット完了後に PR を作る場合は **`.rulesync/rules/pr-review-policy.md`** を必ず守る。要点:
 
-- `gh pr create` に `--assignee @me` と `--label "種別:..."` を必ず付与
+- `gh pr create` に `--assignee "$(gh api user --jq .login)"` と `--label "種別:..."` を必ず付与 (`@me` のような裸の `@<word>` 表記は誤メンション源なので避ける)
 - 起票直後に `/pr-codex-review {番号}` で Codex レビューを実行
 - ゲート (CRITICAL=0 / HIGH=0 / MEDIUM<3) を通過してからマージ
 - PR description にアーカイブ参照や固有事情を書かない
