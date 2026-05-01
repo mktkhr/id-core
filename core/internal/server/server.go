@@ -7,10 +7,15 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/mktkhr/id-core/core/internal/config"
 	"github.com/mktkhr/id-core/core/internal/health"
 )
+
+// readHeaderTimeout はリクエストヘッダ読み取り全体のタイムアウト。
+// Slowloris 攻撃 (CWE-400) 対策。後続マイルストーンで他のタイムアウト (ReadTimeout / WriteTimeout / IdleTimeout) も追加する。
+const readHeaderTimeout = 10 * time.Second
 
 // New は cfg に従って *http.Server を構築して返す。
 //
@@ -22,7 +27,8 @@ func New(cfg *config.Config) *http.Server {
 	mux.HandleFunc("GET /health", health.Handler)
 
 	return &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.Port),
-		Handler: mux,
+		Addr:              fmt.Sprintf(":%d", cfg.Port),
+		Handler:           mux,
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
 }

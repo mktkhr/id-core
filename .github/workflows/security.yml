@@ -1,0 +1,86 @@
+name: Security
+
+# セキュリティスキャン:
+# - govulncheck: 標準ライブラリ + 依存ライブラリの既知脆弱性検出
+# - gosec: Go ソースコードの静的セキュリティ解析
+# - secret-detection: gitleaks による秘密情報の混入検知
+#
+# 後続マイルストーンで追加予定:
+# - dockerfile-security (hadolint) ... Docker 化 (M0.2 以降) で導入
+# - license-check ... 外部依存追加時に導入
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    name: core/ govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache: false
+
+      # 標準ライブラリのみでも Go バージョンに紐づく既知脆弱性は検出される。
+      - name: Run govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: core/go.mod
+          work-dir: core
+          # CVE が出た場合は CI を fail させる (デフォルト挙動)。
+
+  gosec:
+    name: core/ gosec
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          # core/go.mod 由来の Go バージョンをインストール。
+          # gosec 公式 Action (securego/gosec@v2.26.1) は内蔵 Go が固定で go.mod の要求 (例 1.26.2) と合わない場合があるため、
+          # Action ではなく go install + 直接実行に切り替えている。
+          go-version-file: core/go.mod
+          cache: false
+
+      # gosec を go install で導入 (Action 内蔵 Go に縛られないため)。
+      # バージョンは go install 用に明示固定。@latest は使わない (供給網のため)。
+      - name: Install gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@v2.26.1
+
+      - name: Run gosec
+        # $GOPATH/bin が PATH に入る前提に依存しないよう、絶対パスで呼ぶ。
+        run: $(go env GOPATH)/bin/gosec ./...
+
+  secret-detection:
+    name: secret detection (gitleaks)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # gitleaks-action は PR コメントを書く機能を持つが、本リポジトリでは使わないため pull-requests 権限は付与しない。
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # gitleaks は git history を全走査するため、コミット履歴を fetch する。
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
