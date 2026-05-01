@@ -1,14 +1,15 @@
 name: CI
 
-# 最小 CI (M0.1 時点):
-# - core/ の Go ビルド・テスト (race) ・カバレッジ・vet
-# - リポジトリ全体の Markdown フォーマットチェック (prettier)
+# CI ジョブ:
+# - core-go: core/ の Go ビルド・テスト (race) ・カバレッジ・vet
+# - markdown-format: リポジトリ全体の Markdown フォーマットチェック (prettier)
+# - go-mod-tidy-check: core/go.mod / go.sum が `go mod tidy` 後と一致すること
+# - rulesync-drift-check: .rulesync/ 変更時に `make rulesync` の生成物が最新であること
 #
 # 後続マイルストーンで追加予定:
 # - golangci-lint (M0.2 以降、Lint 強化)
 # - examples/go-react/{backend,frontend} の job (実装着手時)
 # - examples/kotlin-nextjs/{backend,frontend} の job (実装着手時)
-# - rulesync drift check (.rulesync/ 変更時の生成物再生成チェック)
 
 on:
   push:
@@ -34,7 +35,7 @@ jobs:
         with:
           go-version-file: core/go.mod
           # core/go.sum はまだ存在しない (標準ライブラリのみ) ため cache-dependency-path は省略。
-          # 依存追加 (M0.2 以降) で go.sum が生成された後にキャッシュが有効化される。
+          # 依存追加で go.sum が生成された後にキャッシュが有効化される。
           cache: false
 
       - name: Build
@@ -54,6 +55,30 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  go-mod-tidy-check:
+    name: core/ go mod tidy check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache: false
+
+      # `go mod tidy` 実行後に go.mod / go.sum が変更されないことを検証する。
+      # 不整合がある場合 (依存追加忘れ、未使用依存の残置など) は CI を fail させる。
+      - name: Run go mod tidy
+        run: go mod tidy
+
+      - name: Verify go.mod and go.sum are tidy
+        run: git diff --exit-code -- go.mod go.sum
+
   markdown-format:
     name: Markdown format check
     runs-on: ubuntu-latest
@@ -64,9 +89,35 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
-      # prettier のバージョンは ルート Makefile の PRETTIER_VERSION と合わせる。
-      # .prettierignore でリポジトリ管理外 (アーカイブ/ 等) を除外済み。
+      # prettier のバージョンはルート Makefile の PRETTIER_VERSION と合わせる。
+      # .prettierignore でリポジトリ管理外を除外済み。
       - name: Prettier check
         run: npx -y prettier@3.8.3 --check .
+
+  rulesync-drift-check:
+    name: rulesync drift check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # .rulesync/ を正本に各 AI ツール向け生成物 (.claude/, .codex/, AGENTS.md, CLAUDE.md 等) を再生成し、
+      # コミット済みのファイルと差分が出ないことを検証する。
+      # 「.rulesync/ を編集したのに make rulesync を忘れている」状態を防ぐ。
+      - name: Regenerate rulesync outputs
+        run: make rulesync
+
+      - name: Verify generated files are up-to-date
+        run: |
+          if ! git diff --exit-code; then
+            echo ""
+            echo "::error::.rulesync/ の変更が反映されていません。ローカルで 'make rulesync' を実行してから push してください。"
+            exit 1
+          fi
