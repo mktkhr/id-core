@@ -80,3 +80,13 @@ targets:
 - `アーカイブ/` 配下はコミットしない (`.gitignore` 済み)
 - `.ai-out/` 配下があればコミットしない
 - ユーザーが明示的に指示しない限り、`git push` / `--force` / `--amend` / `reset --hard` は実行しない
+
+## PR を作る場合
+
+コミット完了後に PR を作る場合は **`.rulesync/rules/pr-review-policy.md`** を必ず守る。要点:
+
+- `gh pr create` に `--assignee @me` と `--label "種別:..."` を必ず付与
+- 起票直後に `/pr-codex-review {番号}` で Codex レビューを実行
+- ゲート (CRITICAL=0 / HIGH=0 / MEDIUM<3) を通過してからマージ
+- PR description にアーカイブ参照や固有事情を書かない
+- `@<word>` 表記はインラインコードで囲む (誤メンション防止)
