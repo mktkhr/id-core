@@ -74,6 +74,7 @@
    - ctx cancel (T-80): `Open` の途中で context cancel → 即座に error 返却
 2. 実装: 新規ファイル
    - `core/internal/db/db.go`:
+
      ```go
      // Open creates a *pgxpool.Pool with config from cfg.Database.
      // Returns error if pool creation or initial Ping fails.
@@ -83,6 +84,7 @@
      - `pgxpool.ParseConfig(dsn)` → プール設定を反映 → `pgxpool.NewWithConfig(ctx, ...)` → `pool.Ping(ctx)`
      - 失敗時のログは host / dbname のみ、password / DSN フルダンプ禁止 (F-10)
      - 失敗時は `*pgxpool.Pool` を `Close` してから error 返却
+
    - `core/internal/db/dsn.go`:
      ```go
      // BuildDSN は cfg.Database から postgres:// DSN 文字列を組み立てる。
@@ -91,6 +93,7 @@
      // SafeRepr は cfg.Database のうちログ出力可能な項目 (host / dbname / sslmode 等) のみを map で返す。
      func SafeRepr(cfg *config.DatabaseConfig) map[string]any
      ```
+
 3. **`go.mod` への依存追加**: `github.com/jackc/pgx/v5` (採用時点の最新安定版を `go get` で取得後 `go mod tidy`)
 4. `make -C core lint test` 全件 pass (DB 接続テストは `t.Skip` で skip される)
 5. **Codex レビューを実行**

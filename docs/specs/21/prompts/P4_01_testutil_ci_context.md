@@ -37,6 +37,7 @@
    - T-82: 失敗後の残留 state なし (panic / Rollback で次テストに影響しない)
    - DB 接続失敗時は `t.Skip` で skip
 2. 実装: `core/internal/testutil/dbtest/helper.go` 新規作成
+
    ```go
    // NewPool は TEST_DATABASE_URL から *pgxpool.Pool を生成する。
    // 接続失敗時は t.Skip でテストを skip し、CI で初めて失敗扱いする。
@@ -49,6 +50,7 @@
 
    - 全関数は `*testing.T` + `context.Context` を受け取る (F-18 踏襲)
    - `TEST_DATABASE_URL` env が未設定なら fallback 値 (`postgres://core:core_dev_pw@localhost:5432/id_core_test?sslmode=disable`) を使う
+
 3. P1 で skeleton 実装した DB 接続テスト (T-74〜T-79) と P2 で skeleton 実装したマイグレーションテスト (T-83〜T-91) のうち DB 必須分を本ヘルパーで本格化
 4. **Codex レビューを実行**
 5. 指摘を対応してから次のステップへ
