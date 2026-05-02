@@ -266,51 +266,273 @@ Q8 で確定した完全一覧:
 
 ## フロー図 / シーケンス図
 
-`/spec-diagrams` で生成予定。最低限以下の 3 図を想定:
+### 図 1: 正常系のリクエスト処理シーケンス
 
-1. リクエスト処理シーケンス (request_id 生成 → middleware チェーン → handler → access_log)
-2. panic 時のフロー (recover → 内部 ERROR ログ → 固定メッセージ応答)
-3. 不正な `X-Request-Id` 受信時のフロー (検証 → 破棄 → 再生成 → `client_request_id` をログに残す)
+middleware の wrap 順序は `request_id` (最外側) → `access_log` → `recover` → `handler`。`access_log` の `defer` は `recover` が応答を書き終えた後に最終 status / level を観測する (D1 順序の根拠)。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor C as Client
+    participant RID as RequestIDMiddleware
+    participant AL as AccessLogMiddleware
+    participant REC as RecoverMiddleware
+    participant H as Handler (例: /health)
+    participant L as Logger
+
+    C->>RID: HTTP リクエスト (X-Request-Id 任意)
+    RID->>RID: クライアント X-Request-Id を検証 (図 3 参照)
+    Note over RID: 妥当 → 採用 / 不正 → 新規 UUID v7 生成
+    RID->>RID: context に request_id 注入
+    RID->>AL: next.ServeHTTP(rec, r) 呼び出し
+    AL->>AL: start := time.Now() / status 記録用 ResponseWriter ラップ
+    Note over AL: defer で 1 行アクセスログ出力 (D3)
+    AL->>REC: next.ServeHTTP(rec, r)
+    REC->>REC: defer recover() (panic 監視)
+    REC->>H: next.ServeHTTP(rec, r)
+    H->>H: ハンドラ処理 (200 OK + JSON 等)
+    H-->>REC: 戻り
+    REC-->>AL: 戻り (panic なし → そのまま)
+    AL->>L: defer 実行: status=200 / duration_ms 計測 / level=INFO で 1 行出力
+    Note over L: time は RFC3339Nano UTC、request_id 付与
+    AL-->>RID: 戻り
+    RID->>C: レスポンスヘッダ X-Request-Id を付与して返却
+```
+
+### 図 2: panic 時のフロー
+
+handler の panic を `recover` が捕捉し、固定メッセージ + `request_id` の F-7 基本形 JSON で 500 応答を書く。スタックトレースは内部 ERROR ログ (level=ERROR) にのみ記録し、HTTP レスポンスへ漏洩させない (F-10)。`access_log` は `recover` の外側にあるため、`recover` が 500 を書き終えた後に最終 status を観測できる。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor C as Client
+    participant RID as RequestIDMiddleware
+    participant AL as AccessLogMiddleware
+    participant REC as RecoverMiddleware
+    participant H as Handler
+    participant L as Logger
+
+    C->>RID: HTTP リクエスト
+    RID->>RID: request_id を context に注入
+    RID->>AL: next.ServeHTTP
+    AL->>REC: next.ServeHTTP (start := time.Now)
+    REC->>H: next.ServeHTTP
+    H-xH: panic("...")
+    Note over H,REC: panic が unwind 開始
+    REC->>REC: defer recover() で捕捉
+    REC->>L: ERROR ログ出力 (request_id / stack trace / panic value)
+    Note over L: stack trace は内部ログのみ。<br/>HTTP レスポンスには載せない (F-10)
+    REC->>C: 500 応答書込 (F-7 基本形 JSON: code=INTERNAL_ERROR / message=固定 / request_id)
+    REC-->>AL: 戻り (panic 解消、通常 return)
+    AL->>L: defer 実行: status=500 / level=ERROR / duration_ms / request_id で 1 行出力
+    AL-->>RID: 戻り
+    RID->>C: レスポンスヘッダ X-Request-Id を付与
+```
+
+### 図 3: 不正な `X-Request-Id` 受信時のフロー
+
+クライアント提供の `X-Request-Id` を妥当性検証 (長さ ≤ 128 オクテット / バイト範囲 `0x21`–`0x7E` / 制御文字・改行・空白・タブ禁止) し、不正値は破棄して新規 UUID v7 を発番する。元値はサニタイズ (制御文字を `\u00XX` 化、長さ切詰め) のうえ、ログにのみ `client_request_id` として残す。
+
+```mermaid
+flowchart TD
+    Start([クライアント受信: X-Request-Id ヘッダ]) --> HasH{ヘッダあり?}
+    HasH -->|なし| Gen[UUID v7 を新規生成]
+    HasH -->|あり| ValLen{"長さ ≤ 128 オクテット?"}
+    ValLen -->|No| Sanitize
+    ValLen -->|Yes| ValChar{"バイト範囲 0x21-0x7E のみ?<br/>(制御文字 / 空白 / 改行 / タブ なし)"}
+    ValChar -->|No| Sanitize
+    ValChar -->|Yes| Accept[クライアント値をそのまま採用]
+
+    Sanitize["元値をサニタイズ<br/>(制御文字 → \u00XX、長さ切詰め)"] --> LogClient[ログにのみ <br/>client_request_id として記録]
+    LogClient --> Gen
+
+    Accept --> Inject[context.Context に request_id を注入]
+    Gen --> Inject
+    Inject --> RespHeader[レスポンスヘッダ X-Request-Id<br/>に採用値を設定]
+    RespHeader --> Next([以降の middleware / handler へ])
+
+    style Sanitize fill:#fff4e6
+    style LogClient fill:#fff4e6
+    style Gen fill:#e6f7ff
+    style Accept fill:#e6ffe6
+```
 
 ## テスト観点
 
-`/spec-tests` で詳細化予定。最低限以下のカテゴリを想定:
+各テストケースに対応する要件 (F-N) / 論点 (Q-N / D-N) を「関連」列に明示する。実装プロンプト (`/spec-prompts` または `/issue-from-spec`) はここから直接 T-N を引いてテスト関数名にできる粒度で記載。
 
-### バックエンド単体テスト
+### `internal/logger/` (`core/internal/logger/`)
 
-- `internal/logger/`: redact (deny-list / case-insensitive / ネスト / 配列)、context 伝播、JSON エンコード時のインジェクション対策
-- `internal/middleware/request_id.go`: 妥当な値の採用 / 不正値の再生成 / レスポンスヘッダ常時付与 / context への伝播
-- `internal/middleware/recover.go`: panic 捕捉 / 固定メッセージ応答 / スタックトレース外部非露出 / 内部ログに stack 記録
-- `internal/middleware/access_log.go`: status による level 自動判定 (5xx=ERROR / 4xx=WARN)、`duration_ms` の記録
-- `internal/apperror/`: F-7 基本形シリアライズ / `details` のシークレット redact
+#### ロガー初期化・フォーマット切替 (`logger.go` / `format.go`)
 
-### 統合テスト
+| #   | カテゴリ     | 観点                                               | 期待                                                                                            | 関連        |
+| --- | ------------ | -------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------- |
+| T-1 | 正常系       | `CORE_LOG_FORMAT=json` (またはデフォルト) で初期化 | `slog.NewJSONHandler` ベースのロガーが返る、出力は 1 行 JSON で `time` / `level` / `msg` を含む | F-1, Q1, Q2 |
+| T-2 | 正常系       | `CORE_LOG_FORMAT=text` で初期化                    | `slog.NewTextHandler` ベースのロガーが返る、出力は `key=value` 形式                             | F-2, Q2     |
+| T-3 | 異常系       | `CORE_LOG_FORMAT=invalid` で初期化                 | エラーが返る (`fmt.Errorf` で原因含む)、main 側で `Error` ログ + `os.Exit(1)`                   | F-2, Q2     |
+| T-4 | 正常系       | `time` フィールドのフォーマット                    | `2026-05-02T01:00:00.123456789Z` 形式 (RFC3339Nano、UTC、`Z` suffix)                            | F-3, Q4     |
+| T-5 | セキュリティ | プロセス全体への副作用がない                       | ロガー初期化前後で `time.Local` が変化しない (`Z` 変換は `ReplaceAttr` 経由で行う)              | Q4          |
 
-- `httptest` で `/health` を叩き、レスポンスヘッダに `X-Request-Id` が必ず付くことを確認
-- panic 経路 (テスト用 endpoint または `recover` 単体テスト) で 500 + 固定メッセージ + `request_id` を確認
-- ログ出力を buffer に取得し、F-3 のフィールドが揃うこと、redact 対象が `[REDACTED]` 化されていることを確認
+#### context 伝播 (`context.go`)
 
-### F-16 契約テスト
+| #   | カテゴリ | 観点                                                        | 期待                                                                               | 関連         |
+| --- | -------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------ |
+| T-6 | 正常系   | `WithRequestID(ctx, "v7-uuid")` 後に `RequestIDFrom(ctx)`   | 元の値が取り出せる                                                                 | F-5, F-14    |
+| T-7 | 正常系   | `WithEventID(ctx, "v7-uuid")` 後に `EventIDFrom(ctx)`       | 元の値が取り出せる                                                                 | F-4, F-14    |
+| T-8 | 準正常系 | request_id を入れていない context から `RequestIDFrom(ctx)` | 空文字またはゼロ値が返る (panic しない)                                            | F-14         |
+| T-9 | 正常系   | logger 経由でログ出力時に context から自動付与              | `request_id` (HTTP 経路) または `event_id` (非 HTTP 経路) がログレコードに含まれる | F-3, F-4, D2 |
 
-- HTTP 系 1 ケース、非 HTTP 系 1 ケース。フィールド存在 + 型を検証 (将来のフィールド追加は許容、削除はテスト失敗)
+#### redact (`redact.go`)
+
+| #    | カテゴリ     | 観点                                                            | 期待                                                                             | 関連     |
+| ---- | ------------ | --------------------------------------------------------------- | -------------------------------------------------------------------------------- | -------- |
+| T-10 | セキュリティ | HTTP ヘッダ `Authorization: Bearer xxx` を redact               | ログ出力で `[REDACTED]` に置換される                                             | F-13, Q8 |
+| T-11 | セキュリティ | HTTP ヘッダ `authorization: bearer xxx` (case 違い) を redact   | case-insensitive で `[REDACTED]` 置換                                            | F-13, Q8 |
+| T-12 | セキュリティ | JSON body `{"password": "secret"}` を redact                    | `password` 値が `[REDACTED]` 置換                                                | F-13, Q8 |
+| T-13 | セキュリティ | ネストした JSON `{"outer": {"client_secret": "xxx"}}` を redact | 再帰走査で `client_secret` 値が `[REDACTED]` 置換                                | F-13, Q8 |
+| T-14 | セキュリティ | 配列内の JSON `{"creds": [{"access_token": "x"}]}` を redact    | 配列要素も走査して `access_token` 値が `[REDACTED]` 置換                         | F-13, Q8 |
+| T-15 | セキュリティ | redact 対象キーの全 16 フィールドを網羅                         | Q8 完全リスト全件が `[REDACTED]` に置換される (テーブル駆動テスト)               | F-13, Q8 |
+| T-16 | セキュリティ | redact 対象キーの全 6 ヘッダを網羅                              | Q8 完全リスト (Authorization 等 6 件) が case-insensitive で `[REDACTED]` 置換   | F-13, Q8 |
+| T-17 | 準正常系     | redact 対象でないキー `username` は変換しない                   | 値はそのまま保持される (部分一致禁止: `accessusername` のような誤検知が起きない) | F-13, Q8 |
+| T-18 | セキュリティ | redact 対象キーが存在しない場合の出力                           | 元の構造のまま `[REDACTED]` 置換は発生しない                                     | F-13     |
+
+#### ログ出力失敗フォールバック (`fallback.go`)
+
+| #    | カテゴリ | 観点                                             | 期待                                                                               | 関連          |
+| ---- | -------- | ------------------------------------------------ | ---------------------------------------------------------------------------------- | ------------- |
+| T-19 | 異常系   | stdout writer がエラーを返す状況をモックして再現 | リクエスト処理は継続 (panic しない)、stderr に最低限のフォールバック行が出力される | NFR可用性, Q9 |
+| T-20 | 異常系   | stdout / stderr 両方失敗する状況                 | 処理継続、drop counter が増加 (`atomic.LoadInt64` で確認可能)                      | NFR可用性, Q9 |
+| T-21 | 正常系   | 通常出力時の drop counter                        | 0 のまま増加しない                                                                 | Q9            |
+
+### `internal/middleware/request_id.go`
+
+| #    | カテゴリ     | 観点                                                              | 期待                                                                            | 関連     |
+| ---- | ------------ | ----------------------------------------------------------------- | ------------------------------------------------------------------------------- | -------- |
+| T-22 | 正常系       | リクエストに `X-Request-Id` ヘッダなし                            | 新規 UUID v7 生成、context に注入、レスポンスヘッダに同値設定                   | F-5, Q3  |
+| T-23 | 正常系       | クライアント `X-Request-Id: abc123-XYZ` (妥当)                    | 受け取った値をそのまま採用、context / レスポンスヘッダに同値                    | F-5, F-6 |
+| T-24 | 境界値       | クライアント `X-Request-Id` が 128 オクテット ちょうど            | 採用される                                                                      | F-6      |
+| T-25 | 境界値       | クライアント `X-Request-Id` が 129 オクテット                     | 破棄、新規生成、ログに `client_request_id` (サニタイズ・切詰め) として残る      | F-6      |
+| T-26 | 異常系       | クライアント `X-Request-Id` に改行 (`\n` / `\r`) を含む           | 破棄、新規生成、`client_request_id` に制御文字を `\u00XX` 化して記録            | F-6, F-1 |
+| T-27 | 異常系       | クライアント `X-Request-Id` に空白 (`0x20`) を含む                | 破棄、新規生成 (空白も拒否対象)                                                 | F-6      |
+| T-28 | 異常系       | クライアント `X-Request-Id` にタブ (`0x09`) を含む                | 破棄、新規生成                                                                  | F-6      |
+| T-29 | 異常系       | クライアント `X-Request-Id` に DEL 文字 (`0x7F`) を含む           | 破棄、新規生成 (`0x21`–`0x7E` 範囲外)                                           | F-6      |
+| T-30 | 正常系       | レスポンスヘッダ `X-Request-Id` の常時付与 (200 / 4xx / 5xx 全て) | どの status でもヘッダが必ず付く                                                | F-5      |
+| T-31 | 正常系       | UUID v7 生成方式の検証                                            | 出力フォーマットが UUID 形式 (8-4-4-4-12)、バージョンビットが `7` (`xxx7-xxxx`) | Q3       |
+| T-32 | セキュリティ | サニタイズ後 `client_request_id` 値の長さ                         | サニタイズ後の長さが 128 オクテット以下に切り詰められる (DoS 防止)              | F-6      |
+
+### `internal/middleware/recover.go`
+
+| #    | カテゴリ     | 観点                                            | 期待                                                                                                                             | 関連           |
+| ---- | ------------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| T-33 | 異常系       | handler が `panic("test")` した場合の HTTP 応答 | HTTP 500、Content-Type `application/json; charset=utf-8`、ボディは F-7 基本形 JSON (固定 `code` / 固定 `message` / `request_id`) | F-9, F-10, F-7 |
+| T-34 | セキュリティ | panic レスポンスにスタックトレースが含まれない  | `body` 内に `goroutine` / `runtime/panic` / 内部ファイルパスの文字列が現れない                                                   | F-10           |
+| T-35 | 異常系       | panic レスポンスに `request_id` が含まれる      | レスポンス JSON の `request_id` フィールドが context の値と一致                                                                  | F-9, F-5       |
+| T-36 | 異常系       | panic 時の内部ログ                              | level=ERROR、`msg` (日本語)、`request_id`、`error` 値、`stack_trace` フィールドにスタック情報を含む                              | F-10, F-11     |
+| T-37 | 正常系       | handler が panic しない場合                     | recover の defer は何もしない (パススルー)                                                                                       | F-9            |
+| T-38 | 異常系       | panic value が `error` 型の場合                 | error chain を `error` フィールドに記録                                                                                          | F-10           |
+| T-39 | 異常系       | panic value が string や任意の値の場合          | `fmt.Sprintf("%v", v)` で文字列化してログに記録                                                                                  | F-10           |
+
+### `internal/middleware/access_log.go`
+
+| #    | カテゴリ     | 観点                                                                       | 期待                                                                                                                                        | 関連          |
+| ---- | ------------ | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| T-40 | 正常系       | 200 OK の handler                                                          | 終了時に 1 行 INFO ログ、フィールド: `time` / `level=INFO` / `msg=access` / `request_id` / `method` / `path` / `status=200` / `duration_ms` | F-3, F-11, D3 |
+| T-41 | 準正常系     | 4xx を返す handler                                                         | level=WARN で出力                                                                                                                           | F-11, Q7      |
+| T-42 | 異常系       | 5xx を返す handler                                                         | level=ERROR で出力                                                                                                                          | F-11, Q7      |
+| T-43 | 異常系       | recover が 500 を書いた場合 (T-33 と統合)                                  | access_log は最終 status=500 / level=ERROR を観測 (D1 順序の検証)                                                                           | D1            |
+| T-44 | 正常系       | `duration_ms` の精度                                                       | float64 で記録、ms 単位 (例: 1.234)                                                                                                         | F-3           |
+| T-45 | セキュリティ | `path` のクエリ文字列に redact 対象キーが含まれる場合 (例: `?code=secret`) | クエリ文字列の `code` 値が `[REDACTED]` 化されてログに残る (F-13 適用面の query)                                                            | F-13, Q8      |
+| T-46 | 正常系       | 開始時はログを出さない (D3: 終了時のみ)                                    | 開始時に出力されるログが存在しない (handler 実行中のログだけが INFO で 1 行のみ)                                                            | D3            |
+
+### `internal/apperror/` (Q5 採用)
+
+| #    | カテゴリ     | 観点                                                                            | 期待                                                                                             | 関連     |
+| ---- | ------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | -------- |
+| T-47 | 正常系       | `apperror.New(code, message)` を JSON シリアライズ                              | `{"code":"...","message":"...","request_id":"..."}` (details なし)                               | F-7, Q5  |
+| T-48 | 正常系       | `apperror.New(...).WithDetails(map[string]any{"field":"value"})` をシリアライズ | `details` フィールドに object 形式で含まれる                                                     | F-7      |
+| T-49 | セキュリティ | `details` にシークレット (例: `password`) を入れた場合                          | redact が再帰走査で `[REDACTED]` 置換                                                            | F-13     |
+| T-50 | 正常系       | `details` 型制約 (object / array のみ)                                          | string / number / bool を直接 `details` にすると compile error または runtime バリデーション失敗 | F-7      |
+| T-51 | 正常系       | error chain の `errors.Is` / `errors.As` 互換性                                 | `Unwrap()` メソッドで原因 error が取得できる                                                     | F-7      |
+| T-52 | 異常系       | request_id が context にない場合のエラーレスポンス生成                          | `request_id` フィールドは空文字またはゼロ値、ボディは正しい JSON                                 | F-7, F-9 |
+
+### 統合テスト (`httptest` 経由)
+
+| #    | カテゴリ     | 観点                                                                       | 期待                                                                                                      | 関連          |
+| ---- | ------------ | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------- |
+| T-53 | 正常系       | middleware チェーン全体を組み立てて `GET /health` を叩く                   | 200 OK + JSON `{"status":"ok"}` (M0.1 互換) + ヘッダ `X-Request-Id`                                       | F-5, F-15     |
+| T-54 | 正常系       | 統合チェーン経由でログ buffer を取得し、access_log 行が 1 行出力されている | T-40 のフィールド構成と一致                                                                               | F-3, D1, D3   |
+| T-55 | 異常系       | テスト用 panic endpoint (例: `/test-panic`) を組み込んで叩く               | T-33〜T-36 の挙動を統合チェーンで再現 (request_id が response / ログ両方で一致)                           | F-9, F-10, D1 |
+| T-56 | セキュリティ | クライアント `Authorization: Bearer xxx` ヘッダ付きで叩く                  | アクセスログで `Authorization` が `[REDACTED]` 化される                                                   | F-13          |
+| T-57 | セキュリティ | クライアント `X-Request-Id` に改行入りで叩く                               | レスポンスヘッダに新規生成された UUID v7、ログに `client_request_id` (`\u00XX` エスケープ済み) として残る | F-6           |
+
+### F-16 ログスキーマ契約テスト (`internal/logger/contract_test.go`)
+
+| #    | カテゴリ | 観点                                                                 | 期待                                                                                                                                                                                  | 関連      |
+| ---- | -------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| T-58 | 契約     | HTTP 経路ログ (`msg=access`) のフィールド存在 + 型                   | 必須: `time` (string, RFC3339Nano UTC) / `level` (string) / `msg` (string) / `request_id` (string) / `method` (string) / `path` (string) / `status` (number) / `duration_ms` (number) | F-16      |
+| T-59 | 契約     | 非 HTTP 経路ログ (起動 / signal handler / job) のフィールド存在 + 型 | 必須: `time` (string) / `level` (string) / `msg` (string) / `event_id` (string)                                                                                                       | F-16, F-4 |
+| T-60 | 契約     | フィールド追加は許容 (将来の拡張)                                    | 追加フィールドが含まれてもテスト失敗しない                                                                                                                                            | F-16      |
+| T-61 | 契約     | フィールド削除は失敗 (破壊的変更検知)                                | 必須フィールドが欠けると `t.Errorf` で失敗                                                                                                                                            | F-16      |
+| T-62 | 契約     | フィールド型変更は失敗 (例: `status` が string になる等)             | 型不一致でテスト失敗                                                                                                                                                                  | F-16      |
+
+### `core/cmd/core/main.go` (F-12 完了条件)
+
+| #    | カテゴリ | 観点                                       | 期待                                                                    | 関連          |
+| ---- | -------- | ------------------------------------------ | ----------------------------------------------------------------------- | ------------- |
+| T-63 | 契約     | CI で `grep -rn 'log\.Fatal' core/` を実行 | 出力が 0 件 (新規追加コードでも `log.Fatal*` 禁止)                      | F-12          |
+| T-64 | 異常系   | 設定読み込み失敗時の挙動                   | 構造化ロガーで `Error` ログ + `os.Exit(1)`、`log.Fatalf` を使用しない   | F-12          |
+| T-65 | 正常系   | サーバー起動時の `event_id` 付き INFO ログ | `msg="core サーバーを起動します"` (日本語) / `event_id` / `port` を含む | F-4, F-14, Q3 |
 
 ### E2E
 
-M0.2 では実施しない (M1.5 から)。
+M0.2 では実施しない (M1.5 から導入予定)。本マイルストーンの動作確認は Go 単体テスト + httptest 統合テストで完結する。
 
 ## 既存資料からの差分
 
-`docs/context/` への影響:
+実装フェーズで `docs/context/` 配下に以下の更新を適用する。本セクションは設計書側の差分整理であり、実際の context 反映は実装プロンプト (`/spec-prompts` または実装 PR) で行う。
 
-- `docs/context/backend/conventions.md`: ログ規約 / エラーレスポンス規約 / request_id 伝播の小節を追加 (Q10 の決定次第で本ファイルへ書くか別ファイルへ分離か変動)
-- `docs/context/backend/patterns.md`: middleware チェーン / context への ID 付与パターン / redact の最小サンプル
-- `docs/context/backend/registry.md`: `core/internal/{logger,apperror,middleware}` の各パッケージを登録
+### `docs/context/backend/conventions.md`
 
-その他:
+| 節                        | 更新内容                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ロギング・テレメトリ      | M0.1 暫定の記述を置換し、(1) ロガー = `log/slog` (Q1)、(2) フォーマット切替 = `CORE_LOG_FORMAT=json\|text` (Q2)、(3) 一意 ID = UUID v7 (Q3)、(4) `time` = RFC3339Nano UTC (Q4)、(5) ログレベル使い分け表 (Q7、`backend-logging` から引用)、(6) HTTP 経路 / 非 HTTP 経路の必須フィールド一覧 (F-3 / F-4)、(7) ログ出力失敗時の挙動 (Q9: stderr フォールバック + drop counter)、(8) ログメッセージ言語 = 日本語 を確定 |
+| エラーハンドリング (新設) | M0.1 patterns.md の暫定 (`fmt.Errorf` で `%w` ラップ) を踏襲しつつ、`internal/apperror/` パッケージの導入を記載 (Q5)。F-7 基本形 `{ code, message, details?, request_id }` の JSON シリアライズ形式、`code` 命名規則 (`SCREAMING_SNAKE_CASE`)、`details` の型制約 (object / array)、redact 対象キー一覧 (F-13 / Q8 完全リスト)、OIDC エンドポイント (M1.x 以降) 向けの RFC 6749 / 6750 準拠方針 (F-8 / Q6) を記載    |
+| middleware 構成           | 新節として `request_id → access_log → recover → handler` の D1 順序、各 middleware の責務、`context.Context` 経由の ID 伝播 (F-14) を記載                                                                                                                                                                                                                                                                            |
+| 環境変数命名              | 既存 `CORE_<NAME>` プレフィックス規約に `CORE_LOG_FORMAT` を追加                                                                                                                                                                                                                                                                                                                                                     |
 
-- `core/cmd/core/main.go` の `log.Fatalf` 暫定実装を構造化ロガーに置換 (F-12 grep 完了条件)
-- `core/Makefile` に lint で `grep -rn "log\.Fatal" core/` を含めるか検討 (D に追加するか実装プロンプト側で扱うか確定)
-- `core/README.md` にログ・エラー規約の入口段落を追加し、規約書 (Q10) へリンク
+### `docs/context/backend/patterns.md`
+
+| 節                                    | 更新内容                                                                                                                                                                                                               |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| middleware チェーンパターン (新設)    | D1 順序の図とコード例を追加 (`request_id → access_log → recover → handler`)、`http.HandlerFunc` を wrap する実装サンプル                                                                                               |
+| context への ID 付与パターン (新設)   | `internal/logger/context.go` の `WithRequestID(ctx, id) context.Context` / `RequestIDFrom(ctx) string` / `WithEventID` / `EventIDFrom` のコード例。Domain 層は context から取り出すのみで logger を呼ばない原則 (F-14) |
+| redact パターン (新設)                | `internal/logger/redact.go` の deny-list 実装の最小サンプル (case-insensitive ヘッダ照合 / JSON 再帰走査 / `[REDACTED]` 固定置換)                                                                                      |
+| エラーハンドリング (置換)             | M0.1 暫定の `fmt.Errorf` + `%w` ラップ記述を、`internal/apperror/` の `New(code, message)` / `WithDetails(...)` パターンに置換。error chain は `errors.Is` / `errors.As` 互換、HTTP レスポンス変換は middleware で行う |
+| ログ出力失敗時のフォールバック (新設) | stderr フォールバック + atomic drop counter のコード例 (Q9)                                                                                                                                                            |
+
+### `docs/context/backend/registry.md`
+
+| 節                   | 更新内容                                                                                                                                                              |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| パッケージマッピング | `core/internal/logger` (構造化ロガー)、`core/internal/apperror` (エラー型 + JSON シリアライザ)、`core/internal/middleware` (request_id / access_log / recover) を追加 |
+| 環境変数一覧         | `CORE_LOG_FORMAT` を追加 (既定値 `json` / 値は `json` または `text` / 必須=任意)                                                                                      |
+| エラーコード一覧     | M0.2 で確定する最低限のコードを記載: `INTERNAL_ERROR` (panic 時の固定 code、F-9 / F-10)、その他は M1.x 以降で OIDC 標準コードと統合                                   |
+
+### `docs/context/testing/backend.md` (TBD → 最低限の埋め込み)
+
+| 節                     | 更新内容                                                                                                                                                                                                                                                                                            |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Go (id-core) のテスト  | 標準パターン: `httptest.NewRequest` + `mux.ServeHTTP` (M0.1 から踏襲)、外部テストパッケージ命名 (`<pkg>_test`)、`t.Setenv` と `t.Parallel` の併用不可 (M0.1 patterns.md から引用)、テーブル駆動テスト (redact deny-list で活用)、ログ buffer での検証パターン、`grep -rn "log\.Fatal" core/` ガード |
+| ログスキーマ契約テスト | F-16 のフィールド存在 + 型検証パターン。HTTP 系・非 HTTP 系の 2 系統に分割。フィールド追加は許容、削除・型変更はテスト失敗の方針                                                                                                                                                                    |
+
+### `core/` 自体の変更 (実装フェーズで対応)
+
+- `core/cmd/core/main.go` の `log.Fatalf` 全廃 (F-12)、構造化ロガー初期化に置換、起動時 INFO ログに `event_id` (UUID v7) と `port` を含める
+- `core/internal/health/health.go` の `_ = json.NewEncoder(w).Encode(...)` の暫定コメントを削除し、エラー時は `apperror.New(...)` で適切に処理 (F-9)
+- `core/internal/server/server.go` で middleware チェーン (D1 順序) を組み込む
+- `core/Makefile` に `lint` target で `grep -rn "log\.Fatal" core/` 検査を追加 (F-12 完了条件 / T-63)
+- `core/README.md` にログ・エラー規約の入口段落を追加し、`docs/context/backend/conventions.md` へリンク
 
 ## 設計フェーズ状況
 
@@ -323,9 +545,9 @@ M0.2 では実施しない (M1.5 から)。
 | 5. DB 設計             | スコープ外 | M0.3 で対応                                                                                                                                                                                                                                   |
 | 6. API 設計            | 完了       | エラーレスポンス規約 (内部 API + OIDC 方針) / ログ規約 (HTTP + 非 HTTP) / redact 規約 (Q8 完全一覧) / middleware チェーン (D1 順序) を確定                                                                                                    |
 | 7. 認可設計            | 完了       | 認可スコープ外、マスター差分なし                                                                                                                                                                                                              |
-| 8. 図                  | 未着手     | `/spec-diagrams` で生成 (3 図想定)                                                                                                                                                                                                            |
-| 9. テスト設計          | 未着手     | `/spec-tests` で T-N 番付与                                                                                                                                                                                                                   |
-| 10. 差分整理           | 進行中     | Q10 で `docs/context/backend/conventions.md` 拡張 + エラーハンドリング節新設に確定。`/spec-track` で最終整理                                                                                                                                  |
+| 8. 図                  | 完了       | `/spec-diagrams` で 3 図生成: (1) 正常系リクエストシーケンス、(2) panic 時フロー、(3) 不正 `X-Request-Id` 受信時フロー                                                                                                                        |
+| 9. テスト設計          | 完了       | `/spec-tests` で T-1〜T-65 (65 ケース) を確定。logger / middleware (request_id / recover / access_log) / apperror / 統合 / 契約テスト / main.go を網羅。E2E は M1.5 から                                                                      |
+| 10. 差分整理           | 完了       | `/spec-track` で context (conventions / patterns / registry / testing) と core/ への影響を確定。実反映は実装フェーズ                                                                                                                          |
 | 11. 実装プロンプト生成 | 未着手     | `/spec-prompts` または `/issue-from-spec`                                                                                                                                                                                                     |
 
 ## 変更履歴
@@ -336,3 +558,6 @@ M0.2 では実施しない (M1.5 から)。
 | 2026-05-02 | `/check-convention` 実施: `internal/errors/` → `internal/apperror/` にリネーム (backend-architecture 共通インフラ規約整合)、F-13 redact 対象に `code_verifier` 追加 (backend-logging OIDC 注意事項)、ログ規約節に「ログメッセージは日本語」原則を追記 (backend-logging)。フェーズ 3 を完了に更新                                                                                                                                                                                                                                           |
 | 2026-05-02 | `/spec-resolve` 実施: 論点 Q1〜Q10 + D1〜D3 を全件確定。Q1=`log/slog`、Q2=`CORE_LOG_FORMAT=json\|text`、Q3=**UUID v7** (v4 禁止)、Q4=RFC3339Nano UTC、Q5=F-7 基本形 + `internal/apperror/` パッケージ、Q6=`X-Request-Id` ヘッダのみ、Q7=`backend-logging` のレベル表、Q8=redact 完全一覧 (16 キー + 6 ヘッダ)、Q9=stderr フォールバック + drop カウンタ、Q10=`docs/context/backend/conventions.md` 拡張、D1=`request_id`→`recover`→`access_log`→`handler`、D2=薄い独自 IF、D3=終了時 1 行。フェーズ 4 / 6 を完了、フェーズ 10 の方向性確定 |
 | 2026-05-02 | Codex PR レビュー (PR #10) 指摘反映: D1 middleware 順序を `request_id`→`recover`→`access_log`→`handler` から **`request_id`→`access_log`→`recover`→`handler`** に変更 (panic 時に `access_log.defer` が status=0 を記録してしまう問題回避)。「既存資料からの差分」の `core/internal/{logger,errors,middleware}` 表記を `apperror` に統一。Q4 の実装方針に「プロセス全体副作用となる `time.Local = time.UTC` は使わず `slog` ハンドラの `ReplaceAttr` で UTC 変換」を明記                                                                   |
+| 2026-05-02 | `/spec-diagrams` 実施: 3 図を mermaid で追加。(1) 正常系リクエスト処理シーケンス (middleware チェーン D1 順序を反映: request_id → access_log → recover → handler)、(2) panic 時フロー (recover が 500 応答を書いた後 access_log が status=500 を観測する流れ)、(3) 不正 `X-Request-Id` 受信時のフロー (validation → サニタイズ → client_request_id 記録 → 新規 UUID v7 発番)。フェーズ 8 を完了                                                                                                                                            |
+| 2026-05-02 | `/spec-tests` 実施: テスト観点を T-1〜T-65 (65 ケース) に詳細化。logger (T-1〜T-21)、middleware request_id (T-22〜T-32)、middleware recover (T-33〜T-39)、middleware access_log (T-40〜T-46)、apperror (T-47〜T-52)、統合テスト (T-53〜T-57)、契約テスト (T-58〜T-62)、main.go (T-63〜T-65) を網羅。各ケースに F-N / Q-N / D-N の関連を明記。フェーズ 9 を完了                                                                                                                                                                             |
+| 2026-05-02 | `/spec-track` 実施: 「既存資料からの差分」を最終化。context への影響を 4 ファイル (`conventions.md` / `patterns.md` / `registry.md` / `testing/backend.md`) で具体化、`core/` 側の変更も列挙 (`main.go` の log.Fatal 全廃 / Makefile lint 追加 / README 規約入口追加)。実反映は実装フェーズで対応する旨を明示。フェーズ 10 を完了                                                                                                                                                                                                          |
