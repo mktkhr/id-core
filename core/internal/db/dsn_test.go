@@ -42,14 +42,15 @@ func TestBuildDSN_VariousSSLModes(t *testing.T) {
 	}
 }
 
-// T-66: user / password に特殊文字 (`@` `:` `/` `?` `#` `%`) を含めても
-// url.QueryEscape で適切にエスケープされ、parse 後に元値が復元される。
+// T-66: user / password に特殊文字 (`@` `:` `/` `?` `#` `%` `空白`) を含めても
+// url.UserPassword で適切にエスケープされ、parse 後に元値が復元される。
+// 空白は url.QueryEscape では `+` 化されてしまうため userinfo 構築には利用しないこと。
 func TestBuildDSN_EscapeSpecialChars(t *testing.T) {
 	cfg := &config.DatabaseConfig{
 		Host:     "db.example",
 		Port:     5432,
-		User:     "user@with:special/chars?#%",
-		Password: "p@ss:word/with?#%",
+		User:     "user@with:special/chars?#% space",
+		Password: "p@ss:word/with?#% space",
 		DBName:   "id_core_dev",
 		SSLMode:  "require",
 	}

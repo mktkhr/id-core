@@ -14,8 +14,9 @@ import (
 // BuildDSN は cfg から PostgreSQL DSN 文字列 (URL 形式) を組み立てる。
 //
 // 形式: postgres://<user>:<password>@<host>:<port>/<dbname>?sslmode=<sslmode>
-// user / password は url.QueryEscape でエスケープし、`@` `:` `/` `?` `#` `%` 等の
-// 特殊文字を含んでいても接続文字列として解釈エラーにならないようにする。
+// userinfo (user / password) は url.UserPassword で構築する。url.UserPassword は
+// 内部で userinfo 部分用のエスケープを行うため、`@` `:` `/` `?` `#` `%` `空白`
+// 等の特殊文字を含んでも parse 後に元値が復元される。
 //
 // 第 1 引数 ctx は F-18 (internal/db の全公開 API は context.Context を第 1 引数に取る)
 // 規約準拠のため受け取るが、本関数は純粋に文字列組み立てのみで cancel 観測しない。
@@ -23,15 +24,16 @@ import (
 // 注意: 戻り値には平文パスワードが含まれる。ログ出力や stderr へのダンプに利用してはならない (F-10)。
 // ロギング目的では SafeRepr を利用すること。
 func BuildDSN(_ context.Context, cfg *config.DatabaseConfig) string {
-	return fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
-		url.QueryEscape(cfg.User),
-		url.QueryEscape(cfg.Password),
-		cfg.Host,
-		cfg.Port,
-		url.PathEscape(cfg.DBName),
-		url.QueryEscape(cfg.SSLMode),
-	)
+	q := url.Values{}
+	q.Set("sslmode", cfg.SSLMode)
+	u := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(cfg.User, cfg.Password),
+		Host:     fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+		Path:     "/" + cfg.DBName,
+		RawQuery: q.Encode(),
+	}
+	return u.String()
 }
 
 // SafeRepr は cfg のうちログ出力可能な項目のみを map で返す。
