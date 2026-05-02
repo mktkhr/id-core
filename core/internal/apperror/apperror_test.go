@@ -197,8 +197,8 @@ func TestWriteJSON(t *testing.T) {
 	if res.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", res.StatusCode)
 	}
-	if ct := res.Header.Get("Content-Type"); ct != "application/json" {
-		t.Errorf("Content-Type = %q, want application/json", ct)
+	if ct := res.Header.Get("Content-Type"); ct != "application/json; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want application/json; charset=utf-8", ct)
 	}
 
 	var got map[string]any
