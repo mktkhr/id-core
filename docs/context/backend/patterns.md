@@ -348,7 +348,9 @@ CI と local の挙動分離:
 
 ## context.Context での DB 関連 ID 伝播 (M0.3 追加)
 
-`internal/db/` / `internal/dbmigrate/` / `internal/testutil/dbtest/` の全公開関数は `ctx context.Context` を第 1 引数に受け取る (F-18)。これにより:
+`internal/db/` / `internal/dbmigrate/` の全公開関数は `ctx context.Context` を第 1 引数に受け取る (F-18)。`internal/testutil/dbtest/` は **F-18 の適用例外**: テスト用ヘルパーは `*testing.T` を起点とし、`NewPool(t)` が `(ctx, *pgxpool.Pool)` を return する形 (Go の `httptest` 等の慣習に整合)。詳細は `core/internal/testutil/dbtest/helper.go` の `DatabaseURL` ドキュメントコメント参照。
+
+ctx 伝播により:
 
 - HTTP middleware が付与した `request_id` が DB 経路まで伝播し、相関ログが取得可能
 - 起動シーケンスで付与した `event_id` が migrate / Ping ログまで伝播
