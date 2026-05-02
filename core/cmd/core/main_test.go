@@ -110,8 +110,15 @@ func TestRun_ConfigLoadError_ReturnsExitError(t *testing.T) {
 //
 // run() を呼ぶと ListenAndServe で長時間ブロックするため、bootstrap だけ直接呼んで検証する。
 func TestBootstrap_Success_EventIDIsUUIDv7(t *testing.T) {
-	t.Setenv("CORE_PORT", "")          // デフォルト値で起動
+	t.Setenv("CORE_PORT", "")           // デフォルト値で起動
 	t.Setenv("CORE_LOG_FORMAT", "json") // 明示的に json
+	// M0.3 で CORE_DB_* が必須化されたため、bootstrap では config.Load 段階で値が必要。
+	// 接続自体は本テスト範囲外 (P3 で起動シーケンスに統合)。
+	t.Setenv("CORE_DB_HOST", "localhost")
+	t.Setenv("CORE_DB_PORT", "5432")
+	t.Setenv("CORE_DB_USER", "idcore")
+	t.Setenv("CORE_DB_PASSWORD", "idcore")
+	t.Setenv("CORE_DB_NAME", "idcore")
 
 	cfg, l, eventID, err := bootstrap()
 	if err != nil {
