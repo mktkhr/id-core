@@ -25,7 +25,12 @@ import (
 // recover が access_log の内側に置かれているため、handler の panic は recover が
 // 500 応答に変換した後、access_log の defer に戻る → access_log は status=500 / ERROR を
 // 観測できる。逆順では access_log.defer が panic unwind 中に走り status=0 / 誤判定になる。
+//
+// l == nil の場合は契約違反として panic する (シングルポイント設計の前提を統一)。
 func Recover(l *logger.Logger, next http.Handler) http.Handler {
+	if l == nil {
+		panic("middleware.Recover: logger must not be nil")
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// access_log と同じ statusRecorder で wroteHeader を追跡する。
 		// ハンドラが panic 前に WriteHeader / Write 済みの場合、http.ResponseWriter は

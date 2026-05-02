@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -17,23 +19,44 @@ import (
 
 // T-63: core/ 配下の production コードから log.Fatal* が完全排除されている。
 //
-// 単体テストとして grep を実行することで lint 相当のガードを組み込む。
-// 検出条件は `log.Fatal` の呼び出し (= 開き括弧付き) のみで、コメントや
-// 「使わない」と書いてある docstring は誤検知しない。テストコード自身は対象外。
+// 単体テストで lint 相当のガードを組み込む。検出条件は `log.Fatal` の呼び出し
+// (= 開き括弧付き、関数名末尾は任意の英字列) のみで、コメントや「使わない」と
+// 書いてある docstring は誤検知しない。テストコード (*_test.go) は対象外。
+//
+// 外部コマンド (grep) には依存せず、Go 標準ライブラリで walk する。
 func TestNoLogFatal_InCorePackage(t *testing.T) {
 	root := repoRoot(t)
 	target := filepath.Join(root, "core")
 
-	out, err := exec.Command("grep", "-rnE",
-		"--include=*.go", "--exclude=*_test.go",
-		`log\.Fatal[a-zA-Z]*\(`, target,
-	).CombinedOutput()
-	// grep は match なしのとき exit=1 を返す。これが期待 (= log.Fatal の呼び出しが無い)。
-	if err == nil {
-		t.Fatalf("log.Fatal の呼び出しが core/ 配下に残存:\n%s", string(out))
+	pattern := regexp.MustCompile(`log\.Fatal[A-Za-z]*\(`)
+	var hits []string
+
+	err := filepath.WalkDir(target, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for i, line := range strings.Split(string(body), "\n") {
+			if pattern.MatchString(line) {
+				hits = append(hits, fmt.Sprintf("%s:%d: %s", path, i+1, line))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk: %v", err)
 	}
-	if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() >= 2 {
-		t.Fatalf("grep がエラー: %v\n%s", err, string(out))
+	if len(hits) > 0 {
+		t.Fatalf("log.Fatal の呼び出しが core/ 配下に残存:\n%s", strings.Join(hits, "\n"))
 	}
 }
 

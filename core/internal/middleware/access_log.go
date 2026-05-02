@@ -26,7 +26,12 @@ import (
 //
 // 不正だったクライアント X-Request-Id (request_id middleware が context に残した
 // client_request_id) があれば追加フィールドとして記録する。
+//
+// l == nil の場合は契約違反として panic する (シングルポイント設計の前提を統一)。
 func AccessLog(l *logger.Logger, next http.Handler) http.Handler {
+	if l == nil {
+		panic("middleware.AccessLog: logger must not be nil")
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
