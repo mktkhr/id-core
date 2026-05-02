@@ -303,6 +303,25 @@ func TestLoad_InvalidPoolDuration(t *testing.T) {
 	}
 }
 
+// MinConns > MaxConns でバリデーションエラー
+func TestLoad_MinConnsExceedsMaxConns(t *testing.T) {
+	setValidDBEnv(t)
+	t.Setenv("CORE_PORT", "")
+	t.Setenv("CORE_DB_POOL_MAX_CONNS", "5")
+	t.Setenv("CORE_DB_POOL_MIN_CONNS", "10")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatalf("config.Load() がエラーを返さなかった")
+	}
+	if !strings.Contains(err.Error(), "CORE_DB_POOL_MIN_CONNS") {
+		t.Errorf("エラーメッセージに 'CORE_DB_POOL_MIN_CONNS' を含むべき: got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "CORE_DB_POOL_MAX_CONNS") {
+		t.Errorf("エラーメッセージに 'CORE_DB_POOL_MAX_CONNS' を含むべき: got %q", err.Error())
+	}
+}
+
 // 必須 env 未設定でエラー
 func TestLoad_MissingRequiredDBEnv(t *testing.T) {
 	required := []string{"CORE_DB_HOST", "CORE_DB_PORT", "CORE_DB_USER", "CORE_DB_PASSWORD", "CORE_DB_NAME"}

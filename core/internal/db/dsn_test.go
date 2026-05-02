@@ -1,6 +1,7 @@
 package db_test
 
 import (
+	"context"
 	"net/url"
 	"strings"
 	"testing"
@@ -22,7 +23,7 @@ func TestBuildDSN_VariousSSLModes(t *testing.T) {
 				DBName:   "idcore",
 				SSLMode:  m,
 			}
-			dsn := db.BuildDSN(cfg)
+			dsn := db.BuildDSN(context.Background(), cfg)
 			// url.Parse で DSN として valid か検証
 			u, err := url.Parse(dsn)
 			if err != nil {
@@ -52,7 +53,7 @@ func TestBuildDSN_EscapeSpecialChars(t *testing.T) {
 		DBName:   "id_core_dev",
 		SSLMode:  "require",
 	}
-	dsn := db.BuildDSN(cfg)
+	dsn := db.BuildDSN(context.Background(), cfg)
 
 	u, err := url.Parse(dsn)
 	if err != nil {
@@ -83,7 +84,7 @@ func TestSafeRepr_DoesNotIncludePassword(t *testing.T) {
 		DBName:   "d",
 		SSLMode:  "disable",
 	}
-	repr := db.SafeRepr(cfg)
+	repr := db.SafeRepr(context.Background(), cfg)
 	if _, ok := repr["password"]; ok {
 		t.Errorf("SafeRepr に password キーが含まれていてはいけない")
 	}

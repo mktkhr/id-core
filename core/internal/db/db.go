@@ -29,10 +29,10 @@ func Open(ctx context.Context, cfg *config.DatabaseConfig, l *logger.Logger) (*p
 		return nil, errors.New("db.Open: logger は nil にできません")
 	}
 
-	dsn := BuildDSN(cfg)
+	dsn := BuildDSN(ctx, cfg)
 	poolCfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		l.Error(ctx, "DB DSN の parse に失敗しました", err, "params", SafeRepr(cfg))
+		l.Error(ctx, "DB DSN の parse に失敗しました", err, "params", SafeRepr(ctx, cfg))
 		return nil, fmt.Errorf("db.Open: pgxpool.ParseConfig: %w", err)
 	}
 
@@ -44,12 +44,12 @@ func Open(ctx context.Context, cfg *config.DatabaseConfig, l *logger.Logger) (*p
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
-		l.Error(ctx, "DB 接続プールの生成に失敗しました", err, "params", SafeRepr(cfg))
+		l.Error(ctx, "DB 接続プールの生成に失敗しました", err, "params", SafeRepr(ctx, cfg))
 		return nil, fmt.Errorf("db.Open: pgxpool.NewWithConfig: %w", err)
 	}
 
 	if err := pool.Ping(ctx); err != nil {
-		l.Error(ctx, "DB 初回 Ping に失敗しました", err, "params", SafeRepr(cfg))
+		l.Error(ctx, "DB 初回 Ping に失敗しました", err, "params", SafeRepr(ctx, cfg))
 		pool.Close()
 		return nil, fmt.Errorf("db.Open: pool.Ping: %w", err)
 	}

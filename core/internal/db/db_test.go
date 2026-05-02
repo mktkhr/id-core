@@ -3,6 +3,7 @@ package db_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -84,10 +85,10 @@ func TestOpen_ContextCanceled(t *testing.T) {
 		pool.Close()
 		t.Fatalf("cancel 済 ctx で Open が成功した")
 	}
-	// pgx 内部で context.Canceled / DeadlineExceeded が wrap される。エラーメッセージにいずれかを含むべき。
-	msg := err.Error()
-	if !strings.Contains(msg, "context") {
-		t.Errorf("err = %q, 'context' を含むべき", msg)
+	// pgx 内部で context.Canceled が wrap される (DeadlineExceeded のケースもありうる)。
+	// errors.Is で厳密にチェックし、無関係な別エラーで通過しないようにする。
+	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("err = %v, context.Canceled または context.DeadlineExceeded であるべき", err)
 	}
 }
 
