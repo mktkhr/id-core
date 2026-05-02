@@ -106,6 +106,34 @@ func TestRun_ConfigLoadError_ReturnsExitError(t *testing.T) {
 	}
 }
 
+// T-100: DB 接続失敗 → run() が exitError を返す (F-6 起動時失敗の logger.Error + 非ゼロ exit)。
+//
+// 接続不能なホスト/ポートを設定し、db.Open が失敗することを引き金に exit code を assert する。
+// 構造化ログは stdout に出る (run 内 logger.Default()) ので stderr には影響しない。
+func TestRun_DBOpenFailure_ReturnsExitError(t *testing.T) {
+	t.Setenv("CORE_PORT", "")
+	t.Setenv("CORE_LOG_FORMAT", "json")
+	t.Setenv("CORE_DB_HOST", "127.0.0.1")
+	t.Setenv("CORE_DB_PORT", "1") // unreachable
+	t.Setenv("CORE_DB_USER", "u")
+	t.Setenv("CORE_DB_PASSWORD", "p")
+	t.Setenv("CORE_DB_NAME", "d")
+	t.Setenv("CORE_DB_SSLMODE", "disable")
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+
+	exitCode := run(w)
+	_ = w.Close()
+
+	if exitCode != exitError {
+		t.Errorf("run() = %d, want %d (DB unreachable のため exitError)", exitCode, exitError)
+	}
+}
+
 // T-65: bootstrap が成功する場合に event_id (UUID v7) 形式を返す。
 //
 // run() を呼ぶと ListenAndServe で長時間ブロックするため、bootstrap だけ直接呼んで検証する。

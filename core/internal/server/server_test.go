@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mktkhr/id-core/core/internal/config"
 	"github.com/mktkhr/id-core/core/internal/logger"
 	"github.com/mktkhr/id-core/core/internal/middleware"
@@ -19,10 +21,23 @@ func newTestLogger() *logger.Logger {
 	return logger.New(logger.FormatJSON, &bytes.Buffer{})
 }
 
+// newTestPool は server.New に渡せる遅延接続済 *pgxpool.Pool を返す。
+// pgxpool.New は parse のみで接続は遅延されるため、DB なしでも作成可能。
+// /health 系の正常パスは pool を呼び出さないので Ping しない限り問題ない。
+func newTestPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	p, err := pgxpool.New(context.Background(), "postgres://test:test@127.0.0.1:1/test?sslmode=disable")
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(p.Close)
+	return p
+}
+
 // TestNew_AddrAndHandler は server.New が cfg.Port を反映した *http.Server を返すことを検証する。
 func TestNew_AddrAndHandler(t *testing.T) {
 	cfg := &config.Config{Port: 9090}
-	srv := server.New(cfg, newTestLogger())
+	srv := server.New(cfg, newTestLogger(), newTestPool(t))
 
 	if srv == nil {
 		t.Fatal("server.New が nil を返した")
@@ -39,7 +54,7 @@ func TestNew_AddrAndHandler(t *testing.T) {
 // (M0.1 外形互換: HTTP 200 + Content-Type prefix application/json + status=ok)。
 func TestNew_HealthRoute(t *testing.T) {
 	cfg := &config.Config{Port: config.DefaultPort}
-	srv := server.New(cfg, newTestLogger())
+	srv := server.New(cfg, newTestLogger(), newTestPool(t))
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
@@ -73,10 +88,20 @@ func TestNew_HealthRoute(t *testing.T) {
 func TestNew_NilLogger_Panics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
-			t.Fatalf("server.New(cfg, nil) should panic, got no panic")
+			t.Fatalf("server.New(cfg, nil, pool) should panic, got no panic")
 		}
 	}()
-	_ = server.New(&config.Config{Port: 1}, nil)
+	_ = server.New(&config.Config{Port: 1}, nil, newTestPool(t))
+}
+
+// nil pool を渡すと server.New が契約違反として panic する (M0.3 で追加した契約)。
+func TestNew_NilPool_Panics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("server.New(cfg, l, nil) should panic, got no panic")
+		}
+	}()
+	_ = server.New(&config.Config{Port: 1}, newTestLogger(), nil)
 }
 
 // ===== 統合テスト (T-53..T-57): middleware チェーン全体組み立てた状態の検証 =====
@@ -88,7 +113,7 @@ func newIntegratedServerWithBuf(t *testing.T) (*http.Server, *bytes.Buffer) {
 	buf := &bytes.Buffer{}
 	l := logger.New(logger.FormatJSON, buf)
 	cfg := &config.Config{Port: config.DefaultPort}
-	return server.New(cfg, l), buf
+	return server.New(cfg, l, newTestPool(t)), buf
 }
 
 // T-53: middleware チェーン全体を組み立てて GET /health を叩く。
