@@ -40,7 +40,8 @@
 
    ```go
    // NewPool は TEST_DATABASE_URL から *pgxpool.Pool を生成する。
-   // 接続失敗時は t.Skip でテストを skip し、CI で初めて失敗扱いする。
+   //   - TEST_DB_REQUIRED=1 (CI で設定): 接続失敗時に t.Fatal でテストを失敗扱い
+   //   - TEST_DB_REQUIRED 未設定 (ローカル): 接続失敗時に t.Skip でスキップ (DB を立てずにユニットテストのみ実行する用途)
    func NewPool(t *testing.T) (context.Context, *pgxpool.Pool)
    // BeginTx は pool.Begin(ctx) で TX を開始 (テスト用)。
    func BeginTx(t *testing.T, ctx context.Context, pool *pgxpool.Pool) pgx.Tx
@@ -50,6 +51,7 @@
 
    - 全関数は `*testing.T` + `context.Context` を受け取る (F-18 踏襲)
    - `TEST_DATABASE_URL` env が未設定なら fallback 値 (`postgres://core:core_dev_pw@localhost:5432/id_core_test?sslmode=disable`) を使う
+   - **CI と Local の挙動分離** (Codex 指摘反映): `TEST_DB_REQUIRED=1` を CI で設定し、CI では DB 接続失敗を取り逃がさない。ローカル開発では未設定のまま `t.Skip` で許容
 
 3. P1 で skeleton 実装した DB 接続テスト (T-74〜T-79) と P2 で skeleton 実装したマイグレーションテスト (T-83〜T-91) のうち DB 必須分を本ヘルパーで本格化
 4. **Codex レビューを実行**
@@ -65,11 +67,13 @@
    .PHONY: test-integration
    test-integration: ## 統合テスト (DB 必要)
    	@echo "🗃️  テスト用 DB を初期化"
-   	@migrate -path core/db/migrations -database "$(TEST_DATABASE_URL)" drop -f
-   	@migrate -path core/db/migrations -database "$(TEST_DATABASE_URL)" up
-   	@echo "🧪 統合テスト実行"
-   	@TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test -p 1 -race -v -run ".*IntegrationTest.*" ./...
+   	@migrate -path db/migrations -database "$(TEST_DATABASE_URL)" drop -f
+   	@migrate -path db/migrations -database "$(TEST_DATABASE_URL)" up
+   	@echo "🧪 統合テスト実行 (build tag = integration)"
+   	@TEST_DATABASE_URL="$(TEST_DATABASE_URL)" TEST_DB_REQUIRED=1 go test -p 1 -race -v -tags integration ./...
    ```
+
+   > **パス補足**: `core/Makefile` から見た相対パスのため `migrate -path db/migrations` (`make -C core test-integration` 時の CWD = `core/`)。設計書本文 / プロンプトの context section では repo root 起点の `core/db/migrations` 表記を使う。
 
 2. テスト用 DB (`id_core_test`) は本マイルストーン用にセットアップ手順を規約書に明記
 3. ローカルで `make test-integration` が pass することを確認
@@ -261,14 +265,25 @@ func DatabaseURL() string {
     return defaultTestDatabaseURL
 }
 
+// dbRequired は CI で TEST_DB_REQUIRED=1 が設定されているかを判定する。
+func dbRequired() bool {
+    return os.Getenv("TEST_DB_REQUIRED") == "1"
+}
+
 func NewPool(t *testing.T) (context.Context, *pgxpool.Pool) {
     t.Helper()
     ctx := context.Background()
     pool, err := pgxpool.New(ctx, DatabaseURL())
     if err != nil {
+        if dbRequired() {
+            t.Fatalf("テスト DB 接続に失敗しました (TEST_DB_REQUIRED=1): %v", err)
+        }
         t.Skipf("テスト DB に接続できないためスキップします: %v", err)
     }
     if err := pool.Ping(ctx); err != nil {
+        if dbRequired() {
+            t.Fatalf("テスト DB Ping に失敗しました (TEST_DB_REQUIRED=1): %v", err)
+        }
         t.Skipf("テスト DB Ping 失敗のためスキップします: %v", err)
     }
     return ctx, pool
@@ -300,13 +315,15 @@ func RollbackTx(t *testing.T, ctx context.Context, tx pgx.Tx) {
 TEST_DATABASE_URL ?= postgres://core:core_dev_pw@localhost:5432/id_core_test?sslmode=disable
 
 .PHONY: test-integration
-test-integration: ## 統合テスト (DB 必要)
+test-integration: ## 統合テスト (DB 必要、build tag=integration)
 	@echo "🗃️  テスト用 DB を初期化"
-	@migrate -path core/db/migrations -database "$(TEST_DATABASE_URL)" drop -f
-	@migrate -path core/db/migrations -database "$(TEST_DATABASE_URL)" up
-	@echo "🧪 統合テスト実行"
-	@TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test -p 1 -race -v -run ".*IntegrationTest.*" ./...
+	@migrate -path db/migrations -database "$(TEST_DATABASE_URL)" drop -f
+	@migrate -path db/migrations -database "$(TEST_DATABASE_URL)" up
+	@echo "🧪 統合テスト実行 (build tag = integration)"
+	@TEST_DATABASE_URL="$(TEST_DATABASE_URL)" TEST_DB_REQUIRED=1 go test -p 1 -race -v -tags integration ./...
 ```
+
+統合テストファイルは先頭に `//go:build integration` ビルドタグを付与する (例: `core/internal/db/db_integration_test.go` の先頭)。これにより `go test ./...` (タグ無し) では除外、`go test -tags integration ./...` でのみ実行される構成。命名規則 (`*IntegrationTest*`) 依存より頑健。
 
 ### CI ワークフロー (F-12)
 
@@ -344,6 +361,7 @@ steps:
     run: make -C core test-integration
     env:
       TEST_DATABASE_URL: postgres://core:core_dev_pw@localhost:5432/id_core_test?sslmode=disable
+      TEST_DB_REQUIRED: "1" # CI では DB 必須、Skip は許容しない
 ```
 
 ## テスト観点

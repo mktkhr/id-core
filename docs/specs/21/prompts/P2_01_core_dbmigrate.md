@@ -40,7 +40,7 @@
 3. 9 ターゲット追加:
    - `migrate-install`: `go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@$(MIGRATE_VERSION)`
    - `migrate-create`: `NAME` 必須引数チェック → `migrate create -ext sql -dir core/db/migrations -seq -digits 8 $(NAME)` (Q4 = 8 桁連番)
-   - `migrate-up`: `migrate -path core/db/migrations -database "$(DB_URL)" up`
+   - `migrate-up`: `migrate -path db/migrations -database "$(DB_URL)" up` (パスは `core/Makefile` 起点の相対、`make -C core migrate-up` 時の CWD = `core/` を前提)
    - `migrate-up-one`: `... up 1`
    - `migrate-down`: `... down 1` (1 ステップロールバック)
    - `migrate-down-all`: `... down -all` (全ロールバック、警告表示)
@@ -201,7 +201,7 @@ CONTEXT_DIR="docs/context"
 | ---------------------------- | ------------------------------------------------------------------------------------------------- |
 | `migrate-install`            | `go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@$(MIGRATE_VERSION)` |
 | `migrate-create NAME=<slug>` | `migrate create -ext sql -dir core/db/migrations -seq -digits 8 $(NAME)`                          |
-| `migrate-up`                 | `migrate -path core/db/migrations -database "$(DB_URL)" up`                                       |
+| `migrate-up`                 | `migrate -path db/migrations -database "$(DB_URL)" up` (`core/Makefile` 起点の相対パス)           |
 | `migrate-up-one`             | `... up 1`                                                                                        |
 | `migrate-down`               | `... down 1`                                                                                      |
 | `migrate-down-all`           | `... down -all` (警告メッセージ付き)                                                              |
