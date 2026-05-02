@@ -1,4 +1,4 @@
-.PHONY: help build run test test-cover lint clean \
+.PHONY: help build run test test-cover test-integration lint clean \
         migrate-install migrate-create migrate-up migrate-up-one \
         migrate-down migrate-down-all migrate-force migrate-version migrate-status
 
@@ -12,6 +12,9 @@ MIGRATE_VERSION := v4.19.1
 # DB_URL は CORE_DB_* 個別 env から組み立てる (M0.3 Q7)。
 # DB_URL を直接 export することで上書き可能 (CI / 統合テスト等)。
 DB_URL ?= postgres://$(CORE_DB_USER):$(CORE_DB_PASSWORD)@$(CORE_DB_HOST):$(CORE_DB_PORT)/$(CORE_DB_NAME)?sslmode=$(CORE_DB_SSLMODE)
+
+# 統合テスト用 DB の DSN。テスト用 DB (id_core_test) を別建てにし、開発 DB との衝突を避ける。
+TEST_DATABASE_URL ?= postgres://core:core_dev_pw@localhost:5432/id_core_test?sslmode=disable
 
 help: ## ヘルプを表示
 	@awk 'BEGIN {FS = ":.*##"} /^([a-zA-Z0-9_-]+):.*##/ { printf "\033[36m%-22s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -28,6 +31,14 @@ test: ## ユニットテスト実行 (-race)
 test-cover: ## カバレッジ計測
 	go test -race -coverprofile=coverage.txt -covermode=atomic ./...
 	go tool cover -func=coverage.txt | tail -1
+
+test-integration: ## 統合テスト (DB 必要、build tag = integration)
+	@echo "==> テスト用 DB を初期化 ($(TEST_DATABASE_URL))"
+	@migrate -path db/migrations -database "$(TEST_DATABASE_URL)" drop -f
+	@migrate -path db/migrations -database "$(TEST_DATABASE_URL)" up
+	@echo "==> 統合テスト実行 (build tag = integration)"
+	@TEST_DATABASE_URL="$(TEST_DATABASE_URL)" TEST_DB_REQUIRED=1 \
+		go test -p 1 -race -v -tags integration ./...
 
 lint: ## go vet + プロジェクト固有禁止チェック (log.Fatal* + マイグレーション連番衝突)
 	@echo "==> go vet"

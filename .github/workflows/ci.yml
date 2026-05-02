@@ -55,6 +55,54 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  core-go-integration:
+    name: core/ Go integration test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core
+    services:
+      postgres:
+        image: postgres:18.3
+        env:
+          POSTGRES_USER: core
+          POSTGRES_PASSWORD: core_dev_pw
+          POSTGRES_DB: id_core_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U core -d id_core_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      CORE_DB_HOST: localhost
+      CORE_DB_PORT: "5432"
+      CORE_DB_USER: core
+      CORE_DB_PASSWORD: core_dev_pw
+      CORE_DB_NAME: id_core_test
+      CORE_DB_SSLMODE: disable
+      TEST_DATABASE_URL: postgres://core:core_dev_pw@localhost:5432/id_core_test?sslmode=disable
+      TEST_DB_REQUIRED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: core/go.mod
+          cache: false
+
+      - name: Install golang-migrate CLI
+        run: make migrate-install
+
+      - name: Add Go bin to PATH
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Run integration tests (build tag = integration)
+        run: make test-integration
+
   go-mod-tidy-check:
     name: core/ go mod tidy check
     runs-on: ubuntu-latest

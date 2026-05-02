@@ -1,6 +1,6 @@
 # バックエンド規約 (id-core / Go)
 
-> 最終更新: 2026-05-02 (M0.2: ログ・エラー・request_id の規約確定 反映)
+> 最終更新: 2026-05-02 (M0.3: DB 接続 + マイグレーション基盤の規約確定 反映)
 
 ## モジュール構成
 
@@ -25,15 +25,17 @@ core/
 
 `core/Makefile` は以下のターゲットを最低限提供する:
 
-| ターゲット   | 用途                                                                                                                                                          |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `help`       | ターゲット一覧を表示 (`make` または `make help`)                                                                                                              |
-| `build`      | バイナリをビルド (`go build -o bin/core ./cmd/core`)                                                                                                          |
-| `run`        | ビルド + 起動                                                                                                                                                 |
-| `test`       | `go test -race ./...`                                                                                                                                         |
-| `test-cover` | カバレッジ計測 (`-coverprofile=coverage.txt`)                                                                                                                 |
-| `lint`       | `go vet ./...` + プロジェクト固有禁止チェック (`log.Fatal*` を非テスト `.go` ファイルに新規追加すると lint failure。`logger.Error` + `os.Exit(1)` を使うこと) |
-| `clean`      | `bin/` と `coverage.txt` を削除                                                                                                                               |
+| ターゲット         | 用途                                                                                                                                                 |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `help`             | ターゲット一覧を表示 (`make` または `make help`)                                                                                                     |
+| `build`            | バイナリをビルド (`go build -o bin/core ./cmd/core`)                                                                                                 |
+| `run`              | ビルド + 起動                                                                                                                                        |
+| `test`             | `go test -race ./...` (DB 不要なユニットテストのみ)                                                                                                  |
+| `test-cover`       | カバレッジ計測 (`-coverprofile=coverage.txt`)                                                                                                        |
+| `test-integration` | 統合テスト (DB 必要、build tag = `integration`、`-p 1` で package 単位順次実行)                                                                      |
+| `lint`             | `go vet ./...` + プロジェクト固有禁止チェック (`log.Fatal*` を非テスト `.go` ファイルに新規追加すると lint failure + マイグレーション連番衝突検出)   |
+| `clean`            | `bin/` と `coverage.txt` を削除                                                                                                                      |
+| `migrate-*` 9 種   | マイグレーション CLI (install / create / up / up-one / down / down-all / force / version / status) — 詳細は本ファイル「DB / マイグレーション」節参照 |
 
 `golangci-lint` の導入は後続マイルストーンで検討。
 
@@ -49,7 +51,93 @@ core/
 
 ## DB / マイグレーション
 
-TBD (M0.3 で確定)
+M0.3 で導入。OIDC / 認可コード / セッション / 認証情報の永続化基盤。実テーブル DDL は M2.x 以降で本格化、本マイルストーンでは接続層 + マイグレーション運用 + smoke table のみ。
+
+### DB 製品 (Q1)
+
+- PostgreSQL 18.x (採用 image tag `postgres:18.3`、patch まで pin)
+- Patch 更新ポリシー: minor / patch update を取り込む際は CHANGELOG を確認し、互換性に問題がなければ image tag を直接書き換える (PR で承認)。本番運用は別リポジトリで並走するため、本リポジトリの値はリファレンス参照点
+
+### クライアントライブラリ (Q3)
+
+- `github.com/jackc/pgx/v5` (`pgxpool.Pool`) を直接使用
+- `database/sql` ラッパは原則使わない (機能重複)
+- `sqlc` は M2.x で本格導入 (Repository 層実装と合わせて)。本マイルストーンの範囲外
+
+### マイグレーションツール (Q2)
+
+- `github.com/golang-migrate/migrate/v4` を CLI binary として運用
+- バージョン pin: `v4.19.1` (`core/Makefile` の `MIGRATE_VERSION` 変数で固定)
+- 起動時の整合性検証 (`AssertClean`) のみ Go library API として `core/internal/dbmigrate` から呼び出す。実 migrate の up/down は CLI 経由 (`make migrate-up` 等) のみ (Q9 起動と migrate 分離方針)
+
+### 環境変数 11 個 (Q7 / Q10 / Q11)
+
+接続 (6 個):
+
+| Key                | 既定値    | 範囲 / 備考                                                                                        |
+| ------------------ | --------- | -------------------------------------------------------------------------------------------------- |
+| `CORE_DB_HOST`     | (必須)    | 任意のホスト名 / IP                                                                                |
+| `CORE_DB_PORT`     | (必須)    | 1〜65535 の整数                                                                                    |
+| `CORE_DB_USER`     | (必須)    | PostgreSQL ユーザー                                                                                |
+| `CORE_DB_PASSWORD` | (必須)    | パスワード (独立 env、F-1 最低ライン)                                                              |
+| `CORE_DB_NAME`     | (必須)    | DB 名                                                                                              |
+| `CORE_DB_SSLMODE`  | `disable` | 6 種: `disable` / `allow` / `prefer` / `require` / `verify-ca` / `verify-full`、それ以外は起動失敗 |
+
+プール (5 個、`pgxpool.Config` に反映):
+
+| Key                                | 既定値 | 範囲 / 備考                         |
+| ---------------------------------- | ------ | ----------------------------------- |
+| `CORE_DB_POOL_MAX_CONNS`           | `10`   | 正数のみ                            |
+| `CORE_DB_POOL_MIN_CONNS`           | `1`    | 0 以上、`MAX_CONNS` 以下            |
+| `CORE_DB_POOL_MAX_CONN_LIFETIME`   | `5m`   | `time.ParseDuration` 互換、負数禁止 |
+| `CORE_DB_POOL_MAX_CONN_IDLE_TIME`  | `2m`   | 同上                                |
+| `CORE_DB_POOL_HEALTH_CHECK_PERIOD` | `30s`  | 同上                                |
+
+### マイグレーションファイル命名規則 (Q4)
+
+- `core/db/migrations/` 配下に配置
+- ファイル名: `{8 桁連番}_{snake_case slug}.{up|down}.sql`
+- 例: `00000001_smoke_initial.up.sql` / `00000001_smoke_initial.down.sql`
+- 連番衝突は `make lint` の `migration sequence collision check` で自動検出 (`.up.sql` のみ集計してペアの up/down で誤検知しない)
+
+### トランザクション境界 (Q5)
+
+- 1 ファイル = 1 TX (`golang-migrate` v4 が暗黙的に `BEGIN/COMMIT` で wrap する仕様に依存)
+- SQL 内に明示的な `BEGIN` / `COMMIT` を書いてはならない (二重 TX エラー)
+- `CREATE INDEX CONCURRENTLY` 等の TX 内不可 DDL は別ファイル分離 + 当面回避 (本マイルストーンでは未対応、必要時に migrate の `-x` オプションを検討)
+
+### SSL/TLS 接続要件 (Q10)
+
+- 本番想定で `disable` / `allow` / `prefer` は不可。**必ず** `require` / `verify-ca` / `verify-full` のいずれか
+- 本番推奨は `verify-full` (RDS / CloudSQL は提供元 root CA を `sslrootcert` env で指定)
+- 開発環境 (docker compose) は `disable` で許可。本リポジトリの `docker/.env.sample` も既定 `disable`
+
+### マイグレーション運用 (Q9)
+
+- 起動シーケンスから migrate up を**呼ばない**: `make migrate-up` を CLI で実行するフローと分離
+- 起動時は `dbmigrate.AssertClean` のみ呼び、`schema_migrations.dirty=true` を検出したら `os.Exit(1)` (F-13 start gate)
+- 起動シーケンス順序 (Q9):
+
+  ```
+  logger.Default()
+  → config.Load()
+  → ctx (event_id 付与)
+  → db.Open(ctx, cfg.Database, l)   // 内部で pgxpool 構築 + 初回 Ping
+  → defer pool.Close()
+  → dbmigrate.AssertClean(ctx, dsn, file://db/migrations, l)   // dirty なら exit 1
+  → server.New(cfg, l, pool)
+  → ListenAndServe
+  ```
+
+- migrate のパス (`migrationsSource`) は `CORE_MIGRATIONS_DIR` env で override 可能 (絶対パス推奨)。未設定時は `file://db/migrations` (`make run` 経由の cwd=`core/` 前提)
+
+### 開発者向け運用手順
+
+1. **初回セットアップ**: `cp docker/.env.sample docker/.env` → `docker compose -f docker/compose.yaml up -d postgres` → `make -C core migrate-install`
+2. **マイグレーション適用**: 開発 DB へは `make -C core migrate-up`、テスト DB へは `make -C core test-integration` (内部で drop + up)
+3. **新規マイグレーション**: `make -C core migrate-create NAME=<slug>` で雛形生成 → `up.sql` / `down.sql` 双方を手書き
+4. **dirty 復旧**: 起動時に `dbmigrate: schema_migrations is dirty` エラーが出たら、`make -C core migrate-force VERSION=<n>` で強制リセット → 修正後 `make migrate-up` 再実行
+5. **テスト用 DB**: `id_core_test` を別建て (compose 同居で OK)、`TEST_DATABASE_URL` env で override 可能
 
 ## API (OIDC OP / 標準エンドポイント)
 

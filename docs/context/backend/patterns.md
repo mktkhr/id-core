@@ -1,6 +1,6 @@
 # バックエンド実装パターン (id-core / Go)
 
-> 最終更新: 2026-05-02 (M0.2: ログ・エラー・middleware パターン反映)
+> 最終更新: 2026-05-02 (M0.3: DB 接続 / マイグレーション運用 / 統合テスト / context ID 伝播 パターン追加)
 
 ## アーキテクチャパターン
 
@@ -222,4 +222,138 @@ TBD (M5.x で確定)
 ## DI / 依存注入
 
 M0.2 では `server.New(cfg, l)` にコンストラクタで設定 + ロガーを渡す。
+M0.3 で `pool *pgxpool.Pool` を追加し `server.New(cfg, l, pool)` に変更。
 M1.x で UseCase / Repository を導入する際にコンストラクタ DI を `internal/server/router.go` に集約する。
+
+## DB 接続パターン (M0.3 追加)
+
+`core/internal/db` で `pgxpool.Pool` を生成し、起動時に Ping で接続性を検証する。
+DSN 組み立ては `url.UserPassword` で userinfo 部分の特殊文字 (`@` `:` `/` `?` `#` `%` 空白) を安全にエスケープする。
+
+```go
+// internal/db/dsn.go (抜粋)
+func BuildDSN(_ context.Context, cfg *config.DatabaseConfig) string {
+    q := url.Values{}
+    q.Set("sslmode", cfg.SSLMode)
+    u := url.URL{
+        Scheme:   "postgres",
+        User:     url.UserPassword(cfg.User, cfg.Password),
+        Host:     fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+        Path:     "/" + cfg.DBName,
+        RawQuery: q.Encode(),
+    }
+    return u.String()
+}
+
+// internal/db/db.go (抜粋)
+func Open(ctx context.Context, cfg *config.DatabaseConfig, l *logger.Logger) (*pgxpool.Pool, error) {
+    dsn := BuildDSN(ctx, cfg)
+    poolCfg, err := pgxpool.ParseConfig(dsn)
+    if err != nil {
+        l.Error(ctx, "DB DSN の parse に失敗しました", err, "params", SafeRepr(ctx, cfg))
+        return nil, err
+    }
+    poolCfg.MaxConns = cfg.MaxConns
+    poolCfg.MinConns = cfg.MinConns
+    // ... 他のプール設定
+    pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+    if err != nil {
+        l.Error(ctx, "DB 接続プールの生成に失敗しました", err, "params", SafeRepr(ctx, cfg))
+        return nil, err
+    }
+    if err := pool.Ping(ctx); err != nil {
+        l.Error(ctx, "DB 初回 Ping に失敗しました", err, "params", SafeRepr(ctx, cfg))
+        pool.Close()
+        return nil, err
+    }
+    return pool, nil
+}
+```
+
+ログには `SafeRepr` の戻り値 (host / port / user / dbname / sslmode のみ) を渡し、`BuildDSN` の戻り値は決してログに渡さない (F-10)。
+context は cancel 伝播のために必ず引数で受け取る (F-18 が `internal/db/` 全公開関数に適用)。
+
+## マイグレーション運用パターン (M0.3 追加)
+
+開発フローは Makefile の 9 ターゲットで完結する。Q9 (起動と migrate 分離) のため、サーバ起動経路から `migrate up` を呼ばない。
+
+```bash
+# 初回 / バージョン更新時
+make migrate-install                       # CLI を $(go env GOPATH)/bin に install
+make migrate-create NAME=add_users_table   # 雛形生成 (Q4: 8 桁連番)
+make migrate-up                            # 全 pending を適用
+make migrate-up-one                        # 1 件だけ適用
+make migrate-down                          # 直近 1 件をロールバック
+make migrate-down-all                      # 全件ロールバック (危険、警告付き)
+make migrate-version                       # 現在 version を表示
+make migrate-status                        # graceful 表示 (no-version は exit 0、それ以外は通常 exit)
+make migrate-force VERSION=<n>             # dirty 状態の強制リセット
+```
+
+起動シーケンスでは `dbmigrate.AssertClean` を呼び、dirty 検出で `os.Exit(1)`:
+
+```go
+// cmd/core/main.go (抜粋、F-13 start gate)
+if err := dbmigrate.AssertClean(ctx, db.BuildDSN(ctx, &cfg.Database), migrationsSource, l); err != nil {
+    if errors.Is(err, dbmigrate.ErrDirty) {
+        l.Error(ctx, "schema_migrations is dirty: 'make migrate-force VERSION=<n>' で復旧してください", err)
+    } else {
+        l.Error(ctx, "schema_migrations の整合性確認に失敗しました", err)
+    }
+    return exitError
+}
+```
+
+dirty 復旧手順:
+
+1. ログから dirty 状態の version を特定
+2. 当該 version の `up.sql` を見て中途半端に適用された DDL を手動巻き戻し
+3. `make migrate-force VERSION=<n>` で `schema_migrations.dirty=false` に戻す
+4. `make migrate-up` で再適用
+
+## 統合テストパターン (M0.3 追加)
+
+`core/internal/testutil/dbtest` に `NewPool` / `BeginTx` / `RollbackTx` を提供。各テストは TX 単位で隔離 (T-81)、defer Rollback で残留 state なし (T-82)。
+
+```go
+//go:build integration
+// File: internal/db/db_integration_test.go
+
+package db_test
+
+import (
+    "testing"
+    "github.com/mktkhr/id-core/core/internal/testutil/dbtest"
+)
+
+func TestSomething_Integration(t *testing.T) {
+    ctx, pool := dbtest.NewPool(t)            // 接続失敗時、CI=fatal、ローカル=skip
+    tx := dbtest.BeginTx(t, ctx, pool)
+    defer dbtest.RollbackTx(t, ctx, tx)
+
+    if _, err := tx.Exec(ctx, "INSERT INTO ...", ...); err != nil {
+        t.Fatalf("INSERT: %v", err)
+    }
+    // 検証...
+}
+```
+
+実行: `make -C core test-integration` (内部で `go test -p 1 -race -tags integration ./...`)。
+`-p 1` (package 単位順次実行) は将来的にテーブル truncate 等のグローバル状態を共有するパッケージが導入された場合の安全性確保。
+
+CI と local の挙動分離:
+
+- CI: `TEST_DB_REQUIRED=1` を設定し、DB 接続失敗を skip ではなく fail に
+- ローカル: `TEST_DB_REQUIRED` 未設定で、開発者が DB を立てない時のユニットテスト実行を妨げない
+
+## context.Context での DB 関連 ID 伝播 (M0.3 追加)
+
+`internal/db/` / `internal/dbmigrate/` の全公開関数は `ctx context.Context` を第 1 引数に受け取る (F-18)。`internal/testutil/dbtest/` は **F-18 の適用例外**: テスト用ヘルパーは `*testing.T` を起点とし、`NewPool(t)` が `(ctx, *pgxpool.Pool)` を return する形 (Go の `httptest` 等の慣習に整合)。詳細は `core/internal/testutil/dbtest/helper.go` の `DatabaseURL` ドキュメントコメント参照。
+
+ctx 伝播により:
+
+- HTTP middleware が付与した `request_id` が DB 経路まで伝播し、相関ログが取得可能
+- 起動シーケンスで付与した `event_id` が migrate / Ping ログまで伝播
+- cancel / timeout が SQL 実行レベルまで伝播 (`pool.Ping(ctx)` は ctx を honor、SELECT/INSERT も同様)
+
+Domain 層 (将来導入) は ctx から ID を取り出すのみ、ロガーへの直呼び出しは禁止 (F-14、M0.2 で確立)。
