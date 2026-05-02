@@ -24,7 +24,7 @@ lint: ## go vet + プロジェクト固有禁止チェック (log.Fatal*)
 	@echo "==> go vet"
 	@go vet ./...
 	@echo "==> log.Fatal* check (project policy: forbidden in core/)"
-	@grep -rEn --include='*.go' --exclude='*_test.go' 'log\.Fatal[a-zA-Z]*\(' . ; rc=$$?; \
+	@grep -rEn --include='*.go' --exclude='*_test.go' '\blog\.Fatal[a-zA-Z]*\(' . ; rc=$$?; \
 	case $$rc in \
 		0) echo "ERROR: log.Fatal* is forbidden in core/. Use logger.Error + os.Exit(1) instead."; exit 1 ;; \
 		1) : ;; \

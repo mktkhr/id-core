@@ -17,10 +17,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/mktkhr/id-core/core/internal/logger"
+	"github.com/mktkhr/id-core/core/internal/middleware"
 )
 
 type fieldKind int
@@ -123,17 +126,46 @@ func decodeOneLine(t *testing.T, buf *bytes.Buffer) map[string]any {
 }
 
 // T-58: HTTP 経路ログの必須フィールド存在 + 型を検証する。
+//
+// 2 経路で検証する:
+//
+//   - "logger 直叩き": logger 単体で組み立てた access ログ
+//   - "middleware 実体": middleware.RequestID + middleware.AccessLog 経由の
+//     実 HTTP リクエストから出力されるログ (実装ドリフト検知)
 func TestContract_HTTPPathSchema(t *testing.T) {
-	var buf bytes.Buffer
-	l := logger.New(logger.FormatJSON, &buf)
-	ctx := logger.WithRequestID(context.Background(), "01890000-0000-7000-8000-000000000001")
+	t.Run("logger 直叩き", func(t *testing.T) {
+		var buf bytes.Buffer
+		l := logger.New(logger.FormatJSON, &buf)
+		ctx := logger.WithRequestID(context.Background(), "01890000-0000-7000-8000-000000000001")
 
-	emitHTTPAccessLog(ctx, l)
+		emitHTTPAccessLog(ctx, l)
 
-	m := decodeOneLine(t, &buf)
-	if problems := validateContract(m, httpRequiredFields); len(problems) > 0 {
-		t.Fatalf("HTTP path schema violations:\n  %s\nrecord=%v", strings.Join(problems, "\n  "), m)
-	}
+		m := decodeOneLine(t, &buf)
+		if problems := validateContract(m, httpRequiredFields); len(problems) > 0 {
+			t.Fatalf("HTTP path schema violations:\n  %s\nrecord=%v", strings.Join(problems, "\n  "), m)
+		}
+	})
+
+	t.Run("middleware 実体経由", func(t *testing.T) {
+		var buf bytes.Buffer
+		l := logger.New(logger.FormatJSON, &buf)
+
+		// middleware.RequestID + middleware.AccessLog の実体を通した出力を検証する。
+		// access_log middleware の出力スキーマが将来変わった場合、このテストが失敗する。
+		h := middleware.RequestID(middleware.AccessLog(l, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})))
+
+		req := httptest.NewRequest(http.MethodGet, "/health?x=1", nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+
+		// access_log は 1 行だけ出す。末尾改行を取り除いて単一レコードとして decode する。
+		m := decodeOneLine(t, &buf)
+		if problems := validateContract(m, httpRequiredFields); len(problems) > 0 {
+			t.Fatalf("HTTP path (middleware) schema violations:\n  %s\nrecord=%v", strings.Join(problems, "\n  "), m)
+		}
+	})
 }
 
 // T-59: 非 HTTP 経路ログの必須フィールド存在 + 型を検証する。
