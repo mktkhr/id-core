@@ -64,6 +64,16 @@ func buildLowerSet(keys []string) map[string]struct{} {
 // RedactHeaders は HTTP ヘッダのディープコピーを作り、deny-list キーの値を [REDACTED] に
 // 置換する (Q8)。元の http.Header は変更しない (immutable)。
 //
+// IsFieldKeyToRedact は body / query / form / details の deny-list (Q8) に
+// 含まれるキーかを case-insensitive 完全一致で判定する。
+//
+// クエリ文字列 / form パラメータの redact 用に他パッケージ (middleware 等) から
+// 呼び出される入口。deny-list の二重管理を避けるため必ず本関数を介する。
+func IsFieldKeyToRedact(key string) bool {
+	_, hit := fieldKeysSet[strings.ToLower(key)]
+	return hit
+}
+
 // nil を渡すと nil を返す。
 func RedactHeaders(h http.Header) http.Header {
 	if h == nil {
