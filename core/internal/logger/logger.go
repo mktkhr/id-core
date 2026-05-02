@@ -48,10 +48,25 @@ func (l *Logger) Debug(ctx context.Context, msg string, args ...any) {
 }
 
 func (l *Logger) log(ctx context.Context, level slog.Level, msg string, errVal error, args ...any) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if !l.handler.Enabled(ctx, level) {
 		return
 	}
 	r := slog.NewRecord(time.Now(), level, msg, 0)
+
+	// F-3 / F-4: context から request_id / event_id を取得して付与。
+	// HTTP 経路 (middleware が WithRequestID 済み) -> request_id 付与。
+	// 非 HTTP 経路 (起動・ジョブ等が WithEventID 済み) -> event_id 付与。
+	// どちらも未設定の場合は付与しない (誤って空文字を入れない)。
+	if id := RequestIDFrom(ctx); id != "" {
+		r.AddAttrs(slog.String("request_id", id))
+	}
+	if id := EventIDFrom(ctx); id != "" {
+		r.AddAttrs(slog.String("event_id", id))
+	}
+
 	r.Add(args...)
 	if errVal != nil {
 		r.AddAttrs(slog.String("error", errVal.Error()))
