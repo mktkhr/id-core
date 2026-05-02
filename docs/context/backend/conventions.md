@@ -1,6 +1,6 @@
 # バックエンド規約 (id-core / Go)
 
-> 最終更新: 2026-05-02 (M0.1: HTTP サーバー骨格 反映)
+> 最終更新: 2026-05-02 (M0.2: ログ・エラー・request_id の規約確定 反映)
 
 ## モジュール構成
 
@@ -25,23 +25,27 @@ core/
 
 `core/Makefile` は以下のターゲットを最低限提供する:
 
-| ターゲット   | 用途                                                  |
-| ------------ | ----------------------------------------------------- |
-| `help`       | ターゲット一覧を表示 (`make` または `make help`)      |
-| `build`      | バイナリをビルド (`go build -o bin/core ./cmd/core`)  |
-| `run`        | ビルド + 起動                                         |
-| `test`       | `go test -race ./...`                                 |
-| `test-cover` | カバレッジ計測 (`-coverprofile=coverage.txt`)         |
-| `lint`       | `go vet ./...` (M0.2 以降で `golangci-lint` 導入予定) |
-| `clean`      | `bin/` と `coverage.txt` を削除                       |
+| ターゲット   | 用途                                                                                                                                                          |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `help`       | ターゲット一覧を表示 (`make` または `make help`)                                                                                                              |
+| `build`      | バイナリをビルド (`go build -o bin/core ./cmd/core`)                                                                                                          |
+| `run`        | ビルド + 起動                                                                                                                                                 |
+| `test`       | `go test -race ./...`                                                                                                                                         |
+| `test-cover` | カバレッジ計測 (`-coverprofile=coverage.txt`)                                                                                                                 |
+| `lint`       | `go vet ./...` + プロジェクト固有禁止チェック (`log.Fatal*` を非テスト `.go` ファイルに新規追加すると lint failure。`logger.Error` + `os.Exit(1)` を使うこと) |
+| `clean`      | `bin/` と `coverage.txt` を削除                                                                                                                               |
+
+`golangci-lint` の導入は後続マイルストーンで検討。
 
 ## 環境変数読み込みパターン
 
 - 環境変数は `internal/config/config.go` の `Load()` で集約読み込み
 - バリデーションエラーは `error` で返す (`log.Fatal` を直接呼ばない → テスト容易性確保)
-- `cmd/<binary>/main.go` で `error` を受けて `log.Fatalf` で異常終了
-- 命名: `CORE_<NAME>` プレフィックス (例: `CORE_PORT`)
+- `cmd/<binary>/main.go` で `error` を受けて `logger.Error` + `os.Exit(1)` で異常終了 (`log.Fatal*` の使用は禁止 / Makefile lint で検査)
+- 命名: `CORE_<NAME>` プレフィックス (例: `CORE_PORT`, `CORE_LOG_FORMAT`)
 - 範囲制約があるものは `MinXxx` / `MaxXxx` 定数として `config` パッケージで宣言
+
+環境変数の一覧は `docs/context/backend/registry.md` の「環境変数一覧」を参照。
 
 ## DB / マイグレーション
 
@@ -61,15 +65,151 @@ TBD — `/authorize`, `/token`, `/userinfo`, `/jwks.json`, `/.well-known/openid-
 
 TBD — 内部ユーザー管理・アカウントリンク・電話番号認証・SNS 認証 (LINE 等) のエンドポイント規約
 
-## エラーコード
+## エラーハンドリング
 
-TBD (M0.2 で確定)
+エラー型と JSON シリアライズは `core/internal/apperror/` パッケージで一元管理する (M0.2 で導入)。
+
+### 基本形 (F-7)
+
+内部 API のエラーレスポンスは下記の JSON 形式で返却する:
+
+```json
+{
+  "code": "INVALID_PARAMETER",
+  "message": "ポートは 1〜65535 の整数で指定してください",
+  "details": { "field": "CORE_PORT", "received": "0" },
+  "request_id": "01890000-0000-7000-8000-000000000000"
+}
+```
+
+| フィールド   | 型     | 必須 | 内容                                                                                                               |
+| ------------ | ------ | ---- | ------------------------------------------------------------------------------------------------------------------ |
+| `code`       | string | 必須 | `SCREAMING_SNAKE_CASE` のエラーコード (例: `INVALID_PARAMETER` / `INTERNAL_ERROR`)                                 |
+| `message`    | string | 必須 | 人間可読の本文 (M0.2〜M5.x スコープでは日本語、OIDC エンドポイント側は RFC 6749 準拠の英語フレーズ等を別途検討)    |
+| `details`    | object | 任意 | 補足情報 (object のみ。配列が必要なら object のキー配下にネスト)。シークレットを含めない (redact deny-list と整合) |
+| `request_id` | string | 必須 | リクエストの request_id (HTTP 経路) または起動 / ジョブの event_id (非 HTTP 経路)                                  |
+
+### エラーコード命名規則
+
+- `SCREAMING_SNAKE_CASE` で表記する
+- ドメイン語彙とエラー種別を組み合わせる (例: `ACCOUNT_NOT_FOUND` / `OTP_EXPIRED`)
+- panic 等の予期しないエラーには固定値 `INTERNAL_ERROR` を返す (F-9 / F-10)
+- OIDC エンドポイント (M1.x 以降) は RFC 6749 / 6750 / OpenID Connect Core が定める標準コード (`invalid_request` / `invalid_grant` / `invalid_token` 等) を併用する。本規約の `SCREAMING_SNAKE_CASE` は内部 API スコープに適用し、OIDC 標準エンドポイントは仕様準拠を優先する
+
+### details の制約
+
+- 型は object に限定 (`apperror.WithDetails(map[string]any)`)。配列を含めたい場合は object のキー配下にネストする
+- シークレットを含めない。redact deny-list (後述) と同一の命名規約に従い、deny-list 該当キーを `details` に詰めない
+- `details` を含めたエラーは内部 API のクライアント側 (フロントエンド) でフィールド単位の誘導 UI に活用する
+
+### redact 対象キー一覧 (Q8 完全一覧)
+
+ログ・エラーレスポンス出力前に値を `[REDACTED]` (固定値) に置換する。照合は **case-insensitive かつ完全一致**、ネスト object / 配列を再帰走査する。
+
+- ヘッダ (6 件): `Authorization`, `Cookie`, `Set-Cookie`, `Proxy-Authorization`, `X-Api-Key`, `X-Auth-Token`
+- フィールド (16 件): `password`, `current_password`, `new_password`, `access_token`, `refresh_token`, `id_token`, `code`, `code_verifier`, `client_secret`, `assertion`, `client_assertion`, `private_key`, `secret`, `api_key`, `jwt`, `bearer_token`
+
+実装は `core/internal/logger/redact.go` に集約。クエリ文字列・form パラメータ・ログ attribute・`details` の出力経路で同一の deny-list を再利用する (二重管理禁止)。部分一致は誤検知防止のため禁止。
+
+### panic 時の挙動 (F-9 / F-10)
+
+- middleware の `recover` が panic を捕捉 → 5xx + `{ "code": "INTERNAL_ERROR", "message": "...", "request_id": "..." }` を返却
+- スタックトレースは内部ログ (ERROR レベル) にのみ記録し、レスポンス本文には含めない (情報漏えい対策)
+- スタック取得には `runtime.Stack` を使用し、長さ上限を設ける
+
+## ロギング・テレメトリ
+
+`core/internal/logger/` で構造化ログを一元提供する (M0.2 で導入)。
+
+### 実装スタック
+
+- ロガー: Go 標準 `log/slog` を薄くラップ (`core/internal/logger/Logger`)
+- フォーマット切替: `CORE_LOG_FORMAT=json|text` 環境変数 (既定 `json`、開発時は `text`、不正値は起動失敗)
+- 一意 ID 生成: UUID v7 (`github.com/google/uuid` v1.6+ の `uuid.NewV7`)。`uuid.New` / `uuid.NewRandom` (v4) は禁止
+- 出力先: 本番は標準出力 (1 行 1 レコードの JSON Lines)、テストは `bytes.Buffer`
+
+### `time` フィールド
+
+- 値は **RFC3339Nano UTC** (例: `2026-05-02T01:23:45.678901234Z`、`Z` suffix 強制)
+- `slog.HandlerOptions.ReplaceAttr` フックで UTC + `RFC3339Nano` に変換する
+- `time.Local = time.UTC` のようなプロセスグローバルな副作用は禁止 (他パッケージ・他テストへの汚染回避)
+
+### ログレベル使い分け (Q7)
+
+| レベル  | 用途                                                                      |
+| ------- | ------------------------------------------------------------------------- |
+| `DEBUG` | 本番では出力しない (フィルタ運用)。開発調査時のみ                         |
+| `INFO`  | 業務イベント・正常系の処理経過 (ログイン成功、リソース作成、起動・終了等) |
+| `WARN`  | クライアント起因の異常 (4xx)、復旧可能な障害、構成警告                    |
+| `ERROR` | サーバ起因の異常 (5xx)、panic、永続化失敗等の運用調査が必要な事象         |
+
+### 必須フィールド
+
+#### HTTP 経路 (access_log / handler ログ)
+
+| フィールド    | 型     | 必須 | 内容                                                                      |
+| ------------- | ------ | ---- | ------------------------------------------------------------------------- |
+| `time`        | string | 必須 | RFC3339Nano UTC                                                           |
+| `level`       | string | 必須 | `DEBUG` / `INFO` / `WARN` / `ERROR`                                       |
+| `msg`         | string | 必須 | ログメッセージ (`access` 等の固定 kind を別 attribute で明示する場合あり) |
+| `request_id`  | string | 必須 | UUID v7 (X-Request-Id 由来 or サーバ生成)                                 |
+| `method`      | string | 必須 | HTTP メソッド                                                             |
+| `path`        | string | 必須 | URL パス + (redact 済み) クエリ文字列                                     |
+| `status`      | number | 必須 | HTTP ステータスコード                                                     |
+| `duration_ms` | number | 必須 | 処理時間 (ミリ秒、float)                                                  |
+
+#### 非 HTTP 経路 (起動 / signal handler / ジョブ等)
+
+| フィールド | 型     | 必須 | 内容                                |
+| ---------- | ------ | ---- | ----------------------------------- |
+| `time`     | string | 必須 | RFC3339Nano UTC                     |
+| `level`    | string | 必須 | `DEBUG` / `INFO` / `WARN` / `ERROR` |
+| `msg`      | string | 必須 | ログメッセージ                      |
+| `event_id` | string | 必須 | UUID v7 (起動毎・ジョブ毎の一意 ID) |
+
+追加フィールドは許容 (前方互換)。フィールド削除・型変更は **`core/internal/logger/contract_test.go` の F-16 契約テストで失敗** する破壊的変更扱い。
+
+### `request_id` / `event_id` の伝播 (F-3 / F-4)
+
+- `logger.WithRequestID(ctx, id)` / `logger.RequestIDFrom(ctx)` で HTTP 経路に付与
+- `logger.WithEventID(ctx, id)` / `logger.EventIDFrom(ctx)` で非 HTTP 経路に付与
+- HTTP 経路の必須付与は `request_id` middleware (D1 順序の最外層) が担保する
+- 非 HTTP 経路の必須付与は `cmd/<binary>/main.go` 起動時とジョブランナー側で担保する
+- Domain 層 (将来導入) は context から取り出すのみ、ロガー直呼び出しは禁止 (F-14)
+
+### ログ出力失敗時の挙動 (Q9)
+
+- primary writer (stdout) 失敗時に **stderr にフォールバック**
+- stderr も失敗した場合は **atomic drop counter** を増分してリクエスト処理を継続 (リクエストを止めない)
+- `core/internal/logger/FallbackWriter.DropCount()` で counter を取得 (M1.x のメトリクス連携で公開予定)
+
+### ログメッセージ言語
+
+- 内部 API スコープでは `msg` / `error` フィールドを **日本語**で記述する
+- ただしフィールド名 (`request_id` / `status` 等) は英語の予約語を使用する
+- OIDC 標準エンドポイント (M1.x 以降) は OAuth 2.0 / OIDC 仕様の `error` / `error_description` 規約に従う
+
+### ログインジェクション対策 (F-1)
+
+- ロガーは `slog` の構造化 attribute (key/value) のみを公開し、文字列連結による出力は許容しない
+- `Error(ctx, msg, err, args...)` は `err.Error()` を構造化 attribute として渡し、改行・制御文字を JSON エンコーダ経由で安全にエスケープする
+
+## middleware 構成
+
+HTTP middleware の実行順序 (D1) を以下に統一する:
+
+```
+request_id  →  access_log  →  recover  →  handler
+```
+
+| middleware   | 責務                                                                                                                                                                         |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `request_id` | クライアント `X-Request-Id` の検証 + 不正なら UUID v7 を新規発番。サニタイズ済みの不正値は `client_request_id` として context に残す。レスポンスヘッダ `X-Request-Id` を設定 |
+| `access_log` | 終了時に 1 行のアクセスログを構造化出力 (5xx=ERROR / 4xx=WARN / それ以外=INFO)。`recover` が変換した最終 status を観測する                                                   |
+| `recover`    | panic を捕捉して 5xx + `INTERNAL_ERROR` を返す。スタックトレースを ERROR レベルでログ出力                                                                                    |
+
+D1 順序の根拠: 全ログレコード (panic 含む) に `request_id` を付与するため、`request_id` を最外層に置く。`access_log` を `recover` より外側に置くことで、`recover` 後の最終 status (5xx) を access ログに反映する。
 
 ## 認可
 
 TBD — id-core 自身の管理 API の認可方式 (CLAUDE.md 方針: IAM ミドルウェア不採用、手書きポリシー)
-
-## ロギング・テレメトリ
-
-M0.1 暫定: 標準 `log` パッケージで `Printf` / `Fatalf` を使用。
-M0.2 で `log/slog` ベースの構造化ログ + `request_id` ミドルウェアに置換する (`backend-logging` スキル参照)。
