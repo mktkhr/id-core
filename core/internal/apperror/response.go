@@ -41,11 +41,14 @@ func ToResponse(e *CodedError, requestID string) Response {
 
 // WriteJSON は w にエラーレスポンスを書き込む。
 //
-// Content-Type を application/json に設定し、json.Encoder で改行付き 1 行を書き込む。
+// Content-Type を "application/json; charset=utf-8" に設定し、json.Encoder で
+// 改行付き 1 行を書き込む。RFC 8259 で JSON は UTF-8 必須のため charset を付与
+// することでブラウザでの安全な解釈を保証する。
+//
 // 仕様 F-1 のログインジェクション対策として、本関数は string を直接連結せず必ず
 // encoding/json 経由で出力する。
 func WriteJSON(w http.ResponseWriter, status int, e *CodedError, requestID string) error {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	return json.NewEncoder(w).Encode(ToResponse(e, requestID))
 }
