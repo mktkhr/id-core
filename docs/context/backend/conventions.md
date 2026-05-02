@@ -113,7 +113,7 @@ TBD — 内部ユーザー管理・アカウントリンク・電話番号認証
 
 ### panic 時の挙動 (F-9 / F-10)
 
-- middleware の `recover` が panic を捕捉 → 5xx + `{ "code": "INTERNAL_ERROR", "message": "...", "request_id": "..." }` を返却
+- middleware の `recover` が panic を捕捉 → HTTP 500 + `{ "code": "INTERNAL_ERROR", "message": "...", "request_id": "..." }` を返却
 - スタックトレースは内部ログ (ERROR レベル) にのみ記録し、レスポンス本文には含めない (情報漏えい対策)
 - スタック取得には `runtime.Stack` を使用し、長さ上限を設ける
 
