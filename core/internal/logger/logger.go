@@ -9,6 +9,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
 	"time"
 )
 
@@ -25,6 +26,17 @@ type Logger struct {
 // (Q9 仕様)。テストで bytes.Buffer を渡す場合は失敗経路に入らないため挙動は同一。
 func New(format Format, w io.Writer) *Logger {
 	return &Logger{handler: newHandler(format, NewFallbackWriter(w))}
+}
+
+// Default は CORE_LOG_FORMAT 環境変数を読み、stdout に出力する production 用 Logger を返す。
+//
+// CORE_LOG_FORMAT が不正値の場合はエラーを返す (cmd/main の起動失敗として扱う)。
+func Default() (*Logger, error) {
+	f, err := FormatFromEnv()
+	if err != nil {
+		return nil, err
+	}
+	return New(f, os.Stdout), nil
 }
 
 // Info は INFO レベルでログを出力する (業務イベント)。
