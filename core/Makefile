@@ -20,8 +20,16 @@ test-cover: ## カバレッジ計測
 	go test -race -coverprofile=coverage.txt -covermode=atomic ./...
 	go tool cover -func=coverage.txt | tail -1
 
-lint: ## go vet によるリント (golangci-lint 導入は M0.2 以降)
-	go vet ./...
+lint: ## go vet + プロジェクト固有禁止チェック (log.Fatal*)
+	@echo "==> go vet"
+	@go vet ./...
+	@echo "==> log.Fatal* check (project policy: forbidden in core/)"
+	@grep -rEn --include='*.go' --exclude='*_test.go' 'log\.Fatal[a-zA-Z]*\(' . ; rc=$$?; \
+	case $$rc in \
+		0) echo "ERROR: log.Fatal* is forbidden in core/. Use logger.Error + os.Exit(1) instead."; exit 1 ;; \
+		1) : ;; \
+		*) echo "ERROR: grep exited with $$rc (unexpected)"; exit 1 ;; \
+	esac
 
 clean: ## ビルド成果物を削除
 	rm -rf $(BIN_DIR) coverage.txt
