@@ -37,6 +37,8 @@
 2. 作業ブランチ `feature/m0.2-impl-middleware-server` を `main` から切る
 3. `make -C core build && make -C core test` がベースラインで pass
 
+> **Codex レビュー対象外**: ステップ 0 はブランチ作成・前提確認のみで Go コード変更を伴わない。レビューはステップ 1 以降で実施する。
+
 ### ステップ 1: `internal/middleware/request_id.go` 実装 (F-5/F-6)
 
 1. テストを先に書く: `request_id_test.go` で T-22〜T-32 を実装 (失敗確認)
@@ -111,12 +113,14 @@
 3. **Codex レビューを実行**
 4. 指摘を対応してから次のステップへ
 
-### ステップ 7: 最終確認
+### ステップ 7: 最終確認 + 最終 Codex レビュー
 
 1. `make -C core build && make -C core test && make -C core lint` 全件 pass
 2. `grep -rn "log\.Fatal" core/` の出力が 0 件
 3. M0.1 の `/health` 外形互換 (HTTP 200 + `{"status":"ok"}` + Content-Type) が維持されていることを `httptest` で確認
-4. PR 作成 → `/pr-codex-review {番号}` でゲート通過 → ユーザー承認 → マージ
+4. PR 作成 (`gh pr create` with `--assignee` + `--label`)
+5. **`/pr-codex-review {PR 番号}` で Codex に PR 全体 (差分 + description) をレビューさせる**。これが本フェーズの最終 Codex レビュー (絶対ルール「Codex レビュー必須」を満たす全体検査)
+6. ゲート通過 (CRITICAL=0 / HIGH=0 / MEDIUM<3) → ユーザー承認 → マージ
 
 ## 実装コンテキスト
 

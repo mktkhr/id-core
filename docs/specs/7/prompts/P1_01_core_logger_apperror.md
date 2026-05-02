@@ -37,6 +37,8 @@
 2. `core/go.mod` に `github.com/google/uuid` v1.6+ を追加する**前にユーザーへ承認を求める** (バージョンも提示)。承認後に `go get github.com/google/uuid@v1.6.0` を実行
 3. `make -C core build && make -C core test` がベースラインで pass することを確認
 
+> **Codex レビュー対象外**: ステップ 0 はブランチ作成・依存追加承認・ベースライン確認のみで Go コード変更を伴わない。レビューはステップ 1 以降で実施する。
+
 ### ステップ 1: `core/internal/apperror/` 実装
 
 `apperror` は `logger` の redact 連携で参照されるため先に実装する。
@@ -79,12 +81,14 @@
 4. **Codex レビューを実行**
 5. 指摘を対応してから次のステップへ
 
-### ステップ 6: 全体テスト + ベースラインの確認
+### ステップ 6: 全体テスト + ベースラインの確認 + 最終 Codex レビュー
 
 1. `make -C core build && make -C core test && make -C core lint` 全件 pass
 2. `grep -rn "log\.Fatal" core/` の出力が**増えていない**ことを確認 (本 Issue では cmd/core/main.go の既存利用は temporally 残してよい。完全排除は P2 で行う)
 3. `grep -rn "uuid\.New[^V]" core/` の出力が 0 件 (UUID v4 が混入していない)
-4. PR 作成 → `/pr-codex-review {番号}` でゲート通過 → ユーザー承認 → マージ
+4. PR 作成 (`gh pr create` with `--assignee` + `--label`)
+5. **`/pr-codex-review {PR 番号}` で Codex に PR 全体 (差分 + description) をレビューさせる**。これが本フェーズの最終 Codex レビュー (絶対ルール「Codex レビュー必須」を満たす全体検査)
+6. ゲート通過 (CRITICAL=0 / HIGH=0 / MEDIUM<3) → ユーザー承認 → マージ
 
 ## 実装コンテキスト
 

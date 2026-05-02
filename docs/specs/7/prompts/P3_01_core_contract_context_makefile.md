@@ -34,6 +34,8 @@
 2. 作業ブランチ `feature/m0.2-impl-contract-context` を `main` から切る
 3. `make -C core build && make -C core test && make -C core lint` がベースラインで pass
 
+> **Codex レビュー対象外**: ステップ 0 はブランチ作成・前提確認のみで成果物変更を伴わない。レビューはステップ 1 以降で実施する。
+
 ### ステップ 1: F-16 ログスキーマ契約テスト
 
 1. テストを先に書く: `core/internal/logger/contract_test.go` を新規作成し T-58〜T-62 を実装 (失敗確認)
@@ -75,7 +77,18 @@
 3. **Codex レビューを実行**
 4. 指摘を対応してから次のステップへ
 
-### ステップ 4: `docs/context/backend/conventions.md` 更新
+### ステップ 4-7: `docs/context/` 4 ファイル更新 (1 ステップで実施)
+
+context 4 ファイルは互いに整合性を取る必要があるため、**1 つのコミット単位**として実施し、末尾でまとめて Codex レビューを実行する。各ファイルの更新内容は以下のサブセクション (4-1 〜 4-4) で個別に指示する。
+
+サブステップを順次実施した後、以下を必ず実行する:
+
+1. `make -C core lint test` が pass (context 更新は core/ には影響しないが、既存テストを壊していないか確認)
+2. `npx prettier --check docs/context/backend/*.md docs/context/testing/backend.md` で整形確認 (失敗時は `--write` で整形)
+3. **Codex レビューを実行** (コマンドは末尾、context 4 ファイルの整合性検証を含める)
+4. 指摘を対応してから次のステップへ
+
+#### サブステップ 4-1: `docs/context/backend/conventions.md` 更新
 
 1. 「ロギング・テレメトリ」節の M0.1 暫定記述を**詳細化**:
    - ロガー実装: `log/slog` (Go 標準)
@@ -99,7 +112,7 @@
    - `context.Context` 経由の `request_id` / `event_id` 伝播 (Domain 層は context から取得のみ)
 4. 「環境変数」節 (registry.md と整合) に `CORE_LOG_FORMAT` を追加
 
-### ステップ 5: `docs/context/backend/patterns.md` 更新
+#### サブステップ 4-2: `docs/context/backend/patterns.md` 更新
 
 1. 「middleware チェーンパターン」節を**新設**: D1 順序の図とコード例 (`http.HandlerFunc` を wrap する実装サンプル)
 2. 「context への ID 付与パターン」節を**新設**: `WithRequestID` / `RequestIDFrom` / `WithEventID` / `EventIDFrom` のコード例。Domain 層は context から取り出すのみ
@@ -107,7 +120,7 @@
 4. 「エラーハンドリング」節を**置換**: M0.1 暫定の `fmt.Errorf` + `%w` ラップ記述を、`apperror.New(code, message)` / `WithDetails(...)` / `Wrap(cause)` パターンに置換
 5. 「ログ出力失敗時のフォールバック」節を**新設**: stderr フォールバック + atomic drop counter のコード例
 
-### ステップ 6: `docs/context/backend/registry.md` 更新
+#### サブステップ 4-3: `docs/context/backend/registry.md` 更新
 
 1. 「パッケージマッピング」表に以下を追加:
    - `core/internal/logger` (構造化ロガー、依存: `log/slog`, `github.com/google/uuid`)
@@ -116,7 +129,7 @@
 2. 「環境変数一覧」表に `CORE_LOG_FORMAT` を追加 (既定値 `json`、値は `json` または `text`、必須=任意)
 3. 「エラーコード一覧」節を新設し、最低限 `INTERNAL_ERROR` (panic 時の固定 code、F-9 / F-10) を記載。他のコードは M1.x 以降で OIDC 標準コードと統合
 
-### ステップ 7: `docs/context/testing/backend.md` 更新 (TBD → 最低限の埋め込み)
+#### サブステップ 4-4: `docs/context/testing/backend.md` 更新 (TBD → 最低限の埋め込み)
 
 1. 「Go (id-core) のテスト」節を埋める:
    - 標準パターン: `httptest.NewRequest` + `mux.ServeHTTP` (M0.1 から踏襲)
@@ -127,12 +140,14 @@
    - `grep -rn "log\.Fatal" core/` ガード (Makefile の lint で実行)
 2. 「ログスキーマ契約テスト」節を新設: F-16 のフィールド存在 + 型検証パターン。HTTP 系・非 HTTP 系の 2 系統に分割。フィールド追加は許容、削除・型変更はテスト失敗の方針
 
-### ステップ 8: 全体テスト + ベースライン確認
+### ステップ 5: 全体テスト + ベースライン確認 + 最終 Codex レビュー
 
 1. `make -C core build && make -C core test && make -C core lint` 全件 pass
 2. `grep -rn "log\.Fatal" core/` の出力が 0 件 (P2 で達成済み、本フェーズで Makefile lint がそれを保証)
 3. CI 全 green
-4. PR 作成 → `/pr-codex-review {番号}` でゲート通過 → ユーザー承認 → マージ
+4. PR 作成 (`gh pr create` with `--assignee` + `--label`)
+5. **`/pr-codex-review {PR 番号}` で Codex に PR 全体 (差分 + description) をレビューさせる**。これが本フェーズの最終 Codex レビュー (絶対ルール「Codex レビュー必須」を満たす全体検査)
+6. ゲート通過 (CRITICAL=0 / HIGH=0 / MEDIUM<3) → ユーザー承認 → マージ
 
 ## 実装コンテキスト
 
