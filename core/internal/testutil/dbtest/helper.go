@@ -29,7 +29,8 @@ import (
 
 // defaultTestDatabaseURL は TEST_DATABASE_URL 未設定時の fallback。
 // 開発用 docker compose とは別 DB (`id_core_test`) を想定。
-const defaultTestDatabaseURL = "postgres://core:core_dev_pw@localhost:5432/id_core_test?sslmode=disable"
+// 本番値ではなくローカル開発 DB の固定値。CI / 本番では TEST_DATABASE_URL env で override する。
+const defaultTestDatabaseURL = "postgres://core:core_dev_pw@localhost:5432/id_core_test?sslmode=disable" // #nosec G101 -- テスト fallback の固定 DSN。本番には影響しない (TEST_DATABASE_URL で上書き)。
 
 // DatabaseURL は統合テスト用の DSN を返す。TEST_DATABASE_URL 優先、未設定なら fallback。
 //
