@@ -9,9 +9,12 @@ import (
 // 長さや存在情報を漏らさないため "****" 等のマスキングではなく固定文字列で置換する (Q8)。
 const RedactedValue = "[REDACTED]"
 
-// HeaderKeysToRedact は HTTP リクエストヘッダの redact 対象 (Q8)。
+// headerKeysToRedact は HTTP リクエストヘッダの redact 対象 (Q8)。
 // 照合は case-insensitive。
-var HeaderKeysToRedact = []string{
+//
+// 非公開: 外部から書き換えられて redact が無効化される事故を防ぐ。
+// 設定変更が必要になった場合は本パッケージ内で更新する (リリースに含める)。
+var headerKeysToRedact = []string{
 	"Authorization",
 	"Cookie",
 	"Set-Cookie",
@@ -20,9 +23,11 @@ var HeaderKeysToRedact = []string{
 	"X-Auth-Token",
 }
 
-// FieldKeysToRedact は body / query / form / details の redact 対象 (Q8)。
+// fieldKeysToRedact は body / query / form / details の redact 対象 (Q8)。
 // 照合は case-insensitive かつ完全一致 (部分一致禁止)。
-var FieldKeysToRedact = []string{
+//
+// 非公開: 外部から書き換えられて redact が無効化される事故を防ぐ。
+var fieldKeysToRedact = []string{
 	"password",
 	"current_password",
 	"new_password",
@@ -44,8 +49,8 @@ var FieldKeysToRedact = []string{
 // 内部で使う照合用 set (lower-case 化済み)。
 // init で生成し、以降の Redact* 呼び出し中の I/O を抑える。
 var (
-	headerKeysSet = buildLowerSet(HeaderKeysToRedact)
-	fieldKeysSet  = buildLowerSet(FieldKeysToRedact)
+	headerKeysSet = buildLowerSet(headerKeysToRedact)
+	fieldKeysSet  = buildLowerSet(fieldKeysToRedact)
 )
 
 func buildLowerSet(keys []string) map[string]struct{} {

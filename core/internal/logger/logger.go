@@ -20,8 +20,11 @@ type Logger struct {
 }
 
 // New は format / writer を指定して Logger を生成する。
+//
+// w は内部で FallbackWriter にラップされ、書き込み失敗時に stderr へフォールバックする
+// (Q9 仕様)。テストで bytes.Buffer を渡す場合は失敗経路に入らないため挙動は同一。
 func New(format Format, w io.Writer) *Logger {
-	return &Logger{handler: newHandler(format, w)}
+	return &Logger{handler: newHandler(format, NewFallbackWriter(w))}
 }
 
 // Info は INFO レベルでログを出力する (業務イベント)。
