@@ -520,7 +520,7 @@ M1.5 で go-react RP から `go-oidc` ライブラリ初期化 → Discovery / J
 | 8. 図                  | 完了   | 2026-05-03 完了。`/spec-diagrams` で起動シーケンス + Discovery 取得 + JWKS 取得 + 503 stub + M2.x rotation 予告の Mermaid シーケンス図を 5 件作成 (UI なしのためフローチャートは省略)                                                                                                                             |
 | 9. テスト設計          | 完了   | 2026-05-03 完了 (論点解決時に拡充)。バックエンド単体 (Discovery/JWKS/keystore/notimpl/config) + golden / 決定論性 / ETag 契約 / 鍵長透過 / 異常系 (PKCS#1/encrypted/短鍵) / private 成分非出力 + ContractTest 5 ケース + 統合 (env 切替) + セキュリティ (redact / fail-fast) を網羅。data-testid は本スコープ外   |
 | 10. 差分整理           | 完了   | 2026-05-03 完了 (論点解決時に拡充)。conventions / registry / patterns / testing / Makefile / .gitignore への差分を網羅 (F-19 規約 8 項目 + Codex 反映の鍵フォーマット受け入れ + JWKS 出力契約を含む)                                                                                                              |
-| 11. 実装プロンプト生成 | 未着手 | `/spec-prompts` で P1〜P4 のプロンプトを `prompts/` 配下に生成                                                                                                                                                                                                                                                    |
+| 11. 実装プロンプト生成 | 完了   | 2026-05-03 完了。`prompts/P1_01_core_config_keystore_devkeygen.md` / `P2_01_core_oidc_discovery.md` / `P3_01_core_oidc_jwks_notimpl.md` / `P4_01_core_main_integration_context.md` の 4 ファイル生成 (Codex CLI 想定、テンプレート 10 必須セクション網羅、自己完結型)                                             |
 
 ## 変更履歴
 
