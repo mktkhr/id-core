@@ -262,9 +262,162 @@ OIDC OP の標準エラーコード (RFC 6749 / OIDC Core) は M1.2 以降で扱
 
 ## フロー図 / シーケンス図
 
-`/spec-diagrams` フェーズで起動シーケンス + Discovery 取得フロー + JWKS 取得フロー + 鍵 rotation 予告 (M2.x) を Mermaid で記述する。
+本マイルストーンは UI / ユーザー操作なし (公開エンドポイント、F-16)、全て RP ライブラリ (例: go-oidc) からの自動取得。シーケンス図のみ記述する。
 
-(本フェーズは雛形のみ、後続フェーズで詳細化)
+### 起動シーケンス (M1.1 で keystore 初期化を統合)
+
+M0.3 までの起動順 (`bootstrap → ctx → db.Open → AssertClean → server`) に **keystore 初期化** を挿入する (F-15、論点 #1 / #16 確定済)。失敗時は `logger.Error` + `os.Exit(1)` (M0.3 同パターン、論点 #9 確定)。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Init as main()
+    participant Boot as bootstrap()
+    participant Cfg as config.Load
+    participant Log as logger.Default
+    participant DB as db.Open + AssertClean
+    participant KS as keystore.Init
+    participant Srv as server.New + ListenAndServe
+
+    Init->>Boot: bootstrap()
+    Boot->>Cfg: Load (CORE_ENV strict / CORE_OIDC_* / CORE_DB_*)
+    alt env が prod/staging/dev 以外 or 必須欠落
+        Cfg-->>Boot: error (起動失敗)
+        Boot-->>Init: error
+        Init-->>Init: stderr 出力 + os.Exit(1)
+    end
+    Boot->>Log: Default()
+    Boot->>Boot: uuid.NewV7 で event_id 発番
+    Boot-->>Init: cfg + logger + event_id
+    Init->>Init: ctx = WithEventID(ctx, event_id)
+    Init->>DB: Open(ctx) + AssertClean
+    alt DB 接続失敗 or schema_migrations dirty
+        DB-->>Init: error
+        Init-->>Init: logger.Error + os.Exit(1)
+    end
+    Init->>KS: Init(ctx, cfg.OIDC)
+    Note right of KS: 1. CORE_OIDC_KEY_FILE 優先<br/>2. なければ DEV_GENERATE_KEY=1 で<br/>   crypto/rsa.GenerateKey (2048 bit、メモリ保持)<br/>3. PEM = PKCS#8 のみ受け入れ<br/>   PKCS#1 / encrypted PEM はエラー<br/>4. kid = DER SHA-256 先頭 24 hex<br/>5. RFC 7638 thumbprint 非準拠
+    alt 鍵読み込み失敗 (env 不整合 / PKCS#1 / encrypted)
+        KS-->>Init: error
+        Init-->>Init: logger.Error + os.Exit(1)
+    end
+    KS-->>Init: KeySet (staticKeySet, 1 鍵保持)
+    Init->>Init: logger.Info "起動鍵情報" (kid / alg=RS256 / 取得経路 / CORE_ENV)
+    alt CORE_OIDC_DEV_GENERATE_KEY=1
+        Init->>Init: logger.Warn "dev 鍵生成モード = 単一 Pod 専用"
+    end
+    Init->>Srv: New(cfg, logger, pool, keystore) + ListenAndServe
+    Srv->>Srv: chi router 構築<br/>middleware D1: request_id → access_log → recover<br/>routes:<br/> /health/* (M0.3)<br/> /.well-known/openid-configuration<br/> /jwks<br/> /authorize → notimpl.Handler("M1.2")<br/> /token → notimpl.Handler("M1.3")<br/> /userinfo → notimpl.Handler("M1.4")
+```
+
+### Discovery 取得フロー
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant RP as RP (go-oidc 等)
+    participant LB as K8s Ingress (TLS 終端)
+    participant MW as middleware (D1)
+    participant H as discovery handler
+    participant Cfg as config (issuer + endpoints)
+
+    RP->>LB: GET https://id.example.com/.well-known/openid-configuration
+    LB->>MW: GET /.well-known/openid-configuration
+    MW->>MW: request_id 生成 (UUID v7) + ctx 注入
+    MW->>MW: access_log "access" (method/path/status/duration_ms)<br/>※ defer で終了時出力
+    MW->>H: ServeHTTP
+    H->>Cfg: 構築済メタデータ取得 (起動時に固定)
+    Cfg-->>H: Discovery JSON 構造体
+    H->>H: 自前固定キー順 marshal (決定的、F-21)
+    H->>H: ETag = sha256(body)[:16] base64url-no-padding
+    H->>H: Cache-Control = CORE_OIDC_DISCOVERY_MAX_AGE で切替
+    alt If-None-Match ヘッダ一致
+        H-->>RP: 304 Not Modified (body なし、ETag 一致確認のみ)
+    else 通常レスポンス
+        H-->>RP: 200 OK<br/>Content-Type: application/json<br/>Cache-Control: ...<br/>ETag: "..."<br/>body = Discovery metadata
+    end
+```
+
+### JWKS 取得フロー
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant RP as RP (go-oidc 等)
+    participant MW as middleware (D1)
+    participant H as jwks handler
+    participant KS as keystore.KeySet
+
+    RP->>MW: GET /jwks
+    MW->>H: ServeHTTP (request_id ctx 注入済)
+    H->>KS: Verifying(ctx) → 公開鍵リスト
+    Note right of KS: M1.1 = staticKeySet で 1 鍵のみ<br/>M2.x rotation 時は新旧複数鍵を返す
+    KS-->>H: []KeyPair (公開鍵 + kid + alg)
+    H->>H: jwx の jwk.Set + AddKey で構築<br/>alg=RS256 / kty=RSA / use=sig 明示セット
+    H->>H: json.Marshal(set) (jwx Marshaler、決定的キー順)<br/>※ private 成分 (d/p/q/dp/dq/qi) は出力しない
+    H->>H: ETag = sha256(body)[:16] base64url-no-padding
+    H->>H: Cache-Control = "public, max-age=<CORE_OIDC_JWKS_MAX_AGE>, must-revalidate" (既定 300)
+    alt If-None-Match ヘッダ一致
+        H-->>RP: 304 Not Modified
+    else 通常レスポンス
+        H-->>RP: 200 OK<br/>Content-Type: application/json<br/>Cache-Control: public, max-age=300, must-revalidate<br/>ETag: "..."<br/>body = {"keys":[{kty,use,alg,kid,n,e}]}
+    end
+```
+
+### 未実装 endpoint (503 stub) フロー
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant RP as RP (go-oidc 等)
+    participant MW as middleware (D1)
+    participant H as notimpl.Handler(milestone)
+
+    RP->>MW: GET /authorize (or POST /token, GET /userinfo)
+    MW->>H: ServeHTTP (request_id ctx 注入済)
+    H->>H: w.Header().Set("Content-Type","application/json")
+    H->>H: w.Header().Set("Cache-Control","no-store")
+    H->>H: w.WriteHeader(503)
+    H->>H: json.NewEncoder(w).Encode(<br/> {"error":"endpoint_not_implemented",<br/>  "available_at":"M1.2"})
+    Note right of H: milestone は endpoint ごと固定<br/>/authorize=M1.2 / /token=M1.3 / /userinfo=M1.4<br/>※ apperror.WriteJSON は使わない<br/>  (apperror は code/message/request_id 形式で<br/>   OIDC 標準と異なるため、論点 #8 確定)
+    H-->>RP: 503 Service Unavailable + 機械可読 JSON
+    Note over MW: access_log "access" status=503 (WARN)<br/>※ M1.2-1.4 で本実装に差し替え時は<br/>  server.go の route 登録 1 行を置き換え
+```
+
+### M2.x 鍵 rotation 予告 (本マイルストーン非実装、F-22 参照)
+
+M2.x で zero-downtime rotation を実装する際の overlap window 設計予告 (規約書に明記、本マイルストーンでは実装しない)。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Op as 運用者
+    participant K8s as K8s Secret
+    participant KS as keystore.KeySet (M2.x)
+    participant RP as RP (go-oidc 等)
+
+    Note over Op,RP: 前提: M2.x で staticKeySet → multiKeySet に拡張<br/>Active(ctx) = 新鍵 / Verifying(ctx) = [新鍵, 旧鍵]
+    Op->>K8s: 新鍵 (kid=NEW) を Secret に追記
+    Op->>KS: rotation API 起動 (M2.x で別途設計)
+    KS->>KS: Active を NEW に切替、Verifying は [NEW, OLD]
+    Note right of KS: overlap window 開始<br/>>= max-age + RP 再取得遅延 + 時計ずれバッファ<br/>(JWKS max-age=300s なら実務目安 15-30 分以上)
+    par 旧鍵で署名された ID Token を持つ RP
+        RP->>KS: GET /jwks (キャッシュ TTL 期限切れ後)
+        KS-->>RP: {keys:[NEW, OLD]} (両方含む)
+        RP->>RP: kid=OLD で検証成功
+    and 新鍵で署名された ID Token を持つ RP
+        RP->>KS: GET /jwks
+        KS-->>RP: {keys:[NEW, OLD]}
+        RP->>RP: kid=NEW で検証成功
+    end
+    Note over Op,RP: overlap window 終了 (時間経過)
+    Op->>K8s: 旧鍵 (OLD) を Secret から削除
+    Op->>KS: keystore reload (Pod 全再起動 or hot reload、M2.x 設計次第)
+    KS->>KS: Verifying = [NEW] のみ
+    Note right of KS: M1.1 では本フローを実装しない、Pod 全停止 → 起動 (F-24)
+```
+
+> **本マイルストーン (M1.1) の鍵更新運用制約**: M1.1 で Secret 内の鍵を変更したい場合は **全 Pod 停止 → 新鍵で再起動** 必須 (F-24)。rolling restart 中は Pod 間で旧鍵 / 新鍵が混在し署名検証不整合となるため。zero-downtime rotation は M2.x で本格実装。
 
 ## テスト観点
 
@@ -364,9 +517,9 @@ M1.5 で go-react RP から `go-oidc` ライブラリ初期化 → Discovery / J
 | 5. DB 設計             | 対象外 | 永続化なし                                                                                                                                                                                                                                                                                                        |
 | 6. API 設計            | 雛形済 | エンドポイント / レスポンス / ヘッダ / env を記載済、論点解決後に追補                                                                                                                                                                                                                                             |
 | 7. 認可設計            | 完了   | 公開エンドポイントのためマスター対象外、本書に既述                                                                                                                                                                                                                                                                |
-| 8. 図                  | 未着手 | `/spec-diagrams` で起動シーケンス + Discovery / JWKS フロー + M2.x rotation 予告                                                                                                                                                                                                                                  |
-| 9. テスト設計          | 雛形済 | `/spec-tests` で観点を網羅化 (data-testid は本スコープ外)                                                                                                                                                                                                                                                         |
-| 10. 差分整理           | 雛形済 | `/spec-track` で context 各ファイルへの差分を最終化                                                                                                                                                                                                                                                               |
+| 8. 図                  | 完了   | 2026-05-03 完了。`/spec-diagrams` で起動シーケンス + Discovery 取得 + JWKS 取得 + 503 stub + M2.x rotation 予告の Mermaid シーケンス図を 5 件作成 (UI なしのためフローチャートは省略)                                                                                                                             |
+| 9. テスト設計          | 完了   | 2026-05-03 完了 (論点解決時に拡充)。バックエンド単体 (Discovery/JWKS/keystore/notimpl/config) + golden / 決定論性 / ETag 契約 / 鍵長透過 / 異常系 (PKCS#1/encrypted/短鍵) / private 成分非出力 + ContractTest 5 ケース + 統合 (env 切替) + セキュリティ (redact / fail-fast) を網羅。data-testid は本スコープ外   |
+| 10. 差分整理           | 完了   | 2026-05-03 完了 (論点解決時に拡充)。conventions / registry / patterns / testing / Makefile / .gitignore への差分を網羅 (F-19 規約 8 項目 + Codex 反映の鍵フォーマット受け入れ + JWKS 出力契約を含む)                                                                                                              |
 | 11. 実装プロンプト生成 | 未着手 | `/spec-prompts` で P1〜P4 のプロンプトを `prompts/` 配下に生成                                                                                                                                                                                                                                                    |
 
 ## 変更履歴
