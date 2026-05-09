@@ -24,6 +24,9 @@ tmp/
 output/
 coverage.out
 
+# id-core OIDC OP の dev 鍵 (M1.1 / F-14: リポジトリにコミットしない、devkeygen で都度生成)
+core/dev-keys/
+
 # Node / pnpm / Next.js
 node_modules/
 .pnpm-store/
