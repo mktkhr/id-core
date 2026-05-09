@@ -1,6 +1,6 @@
 # バックエンド実装パターン (id-core / Go)
 
-> 最終更新: 2026-05-02 (M0.3: DB 接続 / マイグレーション運用 / 統合テスト / context ID 伝播 パターン追加)
+> 最終更新: 2026-05-09 (M1.1: 起動時生成モード / 公開 endpoint middleware / 503 stub フォワード互換 パターンを追加、設計 #32)
 
 ## アーキテクチャパターン
 
@@ -205,7 +205,10 @@ TBD (M4.x で確定)
 
 ## OIDC OP (下流プロダクト向け) パターン
 
-TBD (M1.x で確定)
+M1.1 で確立した最小構成 (Discovery + JWKS + 503 stub + 鍵管理) のパターンは本ファイル末尾の
+「OIDC OP 起動時生成モード」「公開エンドポイントの middleware チェーン」「503 stub による未実装
+endpoint のフォワード互換」「起動時 1 回キャッシュパターン」を参照。本実装 (`/authorize` /
+`/token` / `/userinfo`) のパターンは M1.2-1.4 で順次追記。
 
 ## 認証セッション管理パターン
 
@@ -357,3 +360,116 @@ ctx 伝播により:
 - cancel / timeout が SQL 実行レベルまで伝播 (`pool.Ping(ctx)` は ctx を honor、SELECT/INSERT も同様)
 
 Domain 層 (将来導入) は ctx から ID を取り出すのみ、ロガーへの直呼び出しは禁止 (F-14、M0.2 で確立)。
+
+## OIDC OP 起動時生成モード (M1.1)
+
+`CORE_OIDC_DEV_GENERATE_KEY=1` で `keystore.Init` が呼び出された際、`crypto/rsa.GenerateKey(rand.Reader, 2048)`
+で **メモリ生成された鍵** をプロセス寿命の間だけ保持する。ファイル出力なし、再起動で別鍵に切り替わる。
+
+```go
+// core/internal/keystore/keystore.go (抜粋)
+func Init(ctx context.Context, cfg OIDCKeyConfig, l *logger.Logger) (KeySet, Source, error) {
+    switch {
+    case cfg.KeyFile != "":
+        return loadFromFile(cfg.KeyFile), SourceFile, nil
+    case cfg.DevGenerateKey:
+        return generateInMemory(), SourceGenerated, nil  // ★ プロセス内メモリのみ
+    default:
+        return nil, 0, errors.New("KeyFile か DevGenerateKey のいずれかが必要")
+    }
+}
+```
+
+制約 (F-8 / Q5):
+
+- **単一 Pod 専用**: 複数 Pod で起動すると Pod ごとに別鍵生成 → JWKS 不整合 → 署名検証失敗
+- 強制は **Helm/manifest 側で `replicas: 1`**、アプリ側はガードしない (責務分界、Codex CRITICAL 反映)
+- main.go 起動時に WARN ログ出力 (`source=generated` 検知)
+
+`prod` 環境では強制無効 (`config.Load()` 段階で起動失敗、F-9)。
+
+## 公開エンドポイントの middleware チェーン (M1.1)
+
+OIDC OP の公開エンドポイント (`/.well-known/openid-configuration`, `/jwks`) は、認証層を通さず
+M0.2 確立の middleware D1 順序 (`request_id → access_log → recover → handler`) のみを通過する (F-16)。
+
+`server.New` で全 route が同一 middleware チェーンを共有することで、以下を保証:
+
+- 全レコードに `request_id` が付く (panic 含む)
+- 全 endpoint が同一の access_log スキーマで観測可能
+- 公開 endpoint も `recover` で panic を 500 + INTERNAL_ERROR に変換
+
+```go
+// core/internal/server/server.go (抜粋)
+mux.Handle("GET /.well-known/openid-configuration", discoveryH)
+mux.Handle("GET /jwks", jwksH)
+mux.HandleFunc("GET /authorize", notimpl.Handler("M1.2"))
+
+var wrapped http.Handler = mux
+wrapped = middleware.Recover(l, wrapped)
+wrapped = middleware.AccessLog(l, wrapped)
+wrapped = middleware.RequestID(wrapped)  // 最外層 = 全レコードに request_id
+```
+
+## 503 stub による未実装 endpoint のフォワード互換 (M1.1)
+
+OIDC Discovery で REQUIRED な endpoint (`/authorize`, `/token`, `/userinfo`) は M1.1 時点で
+本実装が未完了でも **メタデータには必須記載** が仕様 (Discovery 1.0 §3)。RP ライブラリが
+能力宣言と現状の不一致を判別できるよう、503 stub + 機械可読 JSON を返す (F-23)。
+
+```go
+// core/internal/oidc/notimpl/handler.go
+func Handler(milestone string) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+        w.Header().Set("Cache-Control", "no-store")
+        // Retry-After は付けない (RFC 7231 §7.1.3 で M1.x 表記は許容外)
+        w.WriteHeader(http.StatusServiceUnavailable)
+        _ = json.NewEncoder(w).Encode(map[string]string{
+            "error":        "endpoint_not_implemented",
+            "available_at": milestone,
+        })
+    }
+}
+```
+
+差し替え動線: M1.2 で本実装が来たら `notimpl.Handler("M1.2")` を本ハンドラに差し替えるだけ。
+route 登録の他の部分は触らない (フォワード互換)。
+
+## 起動時 1 回キャッシュパターン (Discovery / JWKS handler)
+
+公開エンドポイントは「同じ鍵セット + 同じ config なら同じレスポンス」が成り立つため、起動時に
+`Marshal` + `ETag` を 1 回計算してフィールド保持し、リクエスト毎は読み取りのみとする (F-21 + パフォーマンス)。
+
+```go
+// core/internal/oidc/discovery/handler.go (同型: jwks/handler.go)
+type Handler struct {
+    body  []byte // Marshal 結果 (起動時計算)
+    etag  string // ETag(body) (起動時計算)
+    cache string // Cache-Control 値 (起動時計算)
+}
+
+func New(cfg config.OIDCConfig) (*Handler, error) {
+    m := Build(cfg)
+    body, err := Marshal(m)
+    if err != nil { return nil, err }
+    return &Handler{body: body, etag: ETag(body), cache: cacheControlValue(cfg.DiscoveryMaxAge)}, nil
+}
+
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    if r.Header.Get("If-None-Match") == h.etag {
+        w.Header().Set("ETag", h.etag)
+        w.WriteHeader(http.StatusNotModified)
+        return
+    }
+    w.Header().Set("Content-Type", "application/json")
+    w.Header().Set("Cache-Control", h.cache)
+    w.Header().Set("ETag", h.etag)
+    w.WriteHeader(http.StatusOK)
+    _, _ = w.Write(h.body)
+}
+```
+
+すべて読み取り専用フィールドで goroutine 安全。M2.x の鍵 rotation 対応では Handler を
+「鍵セット変更時に再構築」型に拡張する必要があるが、M1.1 範囲では single-shot 構築で十分
+(鍵更新 = Pod 再起動、F-24)。
