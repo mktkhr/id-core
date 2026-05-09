@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mktkhr/id-core/core/internal/config"
+	"github.com/mktkhr/id-core/core/internal/keystore"
 	"github.com/mktkhr/id-core/core/internal/logger"
 	"github.com/mktkhr/id-core/core/internal/middleware"
 	"github.com/mktkhr/id-core/core/internal/server"
@@ -34,10 +35,51 @@ func newTestPool(t *testing.T) *pgxpool.Pool {
 	return p
 }
 
+// newTestKeySet は server.New (M1.1 シグネチャ) に渡す keystore.KeySet を起動時生成モードで構築する。
+func newTestKeySet(t *testing.T) keystore.KeySet {
+	t.Helper()
+	l := logger.New(logger.FormatJSON, &bytes.Buffer{})
+	ks, _, err := keystore.Init(context.Background(),
+		keystore.OIDCKeyConfig{DevGenerateKey: true}, l)
+	if err != nil {
+		t.Fatalf("keystore.Init: %v", err)
+	}
+	return ks
+}
+
+// newTestConfigForServer は server.New に渡す *config.Config を組み立てる。
+// OIDC 関連は dev 起動時生成モード相当のフィールド (Discovery / JWKS handler が New() できる最小構成)。
+func newTestConfigForServer(port int) *config.Config {
+	return &config.Config{
+		Env:  config.EnvDev,
+		Port: port,
+		OIDC: config.OIDCConfig{
+			Issuer:                "http://localhost:8080",
+			DevGenerateKey:        true,
+			JWKSMaxAge:            300,
+			DiscoveryMaxAge:       0,
+			AuthorizationEndpoint: "http://localhost:8080/authorize",
+			TokenEndpoint:         "http://localhost:8080/token",
+			UserInfoEndpoint:      "http://localhost:8080/userinfo",
+			JWKSURI:               "http://localhost:8080/jwks",
+		},
+	}
+}
+
+// newTestServer は M1.1 シグネチャ (cfg, l, pool, ks) で *http.Server を構築する短縮ヘルパー。
+func newTestServer(t *testing.T, cfg *config.Config, l *logger.Logger) *http.Server {
+	t.Helper()
+	srv, err := server.New(cfg, l, newTestPool(t), newTestKeySet(t))
+	if err != nil {
+		t.Fatalf("server.New: %v", err)
+	}
+	return srv
+}
+
 // TestNew_AddrAndHandler は server.New が cfg.Port を反映した *http.Server を返すことを検証する。
 func TestNew_AddrAndHandler(t *testing.T) {
-	cfg := &config.Config{Port: 9090}
-	srv := server.New(cfg, newTestLogger(), newTestPool(t))
+	cfg := newTestConfigForServer(9090)
+	srv := newTestServer(t, cfg, newTestLogger())
 
 	if srv == nil {
 		t.Fatal("server.New が nil を返した")
@@ -53,8 +95,8 @@ func TestNew_AddrAndHandler(t *testing.T) {
 // TestNew_HealthRoute は server.New が返すサーバーで /health が解決できることを検証する
 // (M0.1 外形互換: HTTP 200 + Content-Type prefix application/json + status=ok)。
 func TestNew_HealthRoute(t *testing.T) {
-	cfg := &config.Config{Port: config.DefaultPort}
-	srv := server.New(cfg, newTestLogger(), newTestPool(t))
+	cfg := newTestConfigForServer(config.DefaultPort)
+	srv := newTestServer(t, cfg, newTestLogger())
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
@@ -88,20 +130,30 @@ func TestNew_HealthRoute(t *testing.T) {
 func TestNew_NilLogger_Panics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
-			t.Fatalf("server.New(cfg, nil, pool) should panic, got no panic")
+			t.Fatalf("server.New(cfg, nil, pool, ks) should panic, got no panic")
 		}
 	}()
-	_ = server.New(&config.Config{Port: 1}, nil, newTestPool(t))
+	_, _ = server.New(newTestConfigForServer(1), nil, newTestPool(t), newTestKeySet(t))
 }
 
 // nil pool を渡すと server.New が契約違反として panic する (M0.3 で追加した契約)。
 func TestNew_NilPool_Panics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
-			t.Fatalf("server.New(cfg, l, nil) should panic, got no panic")
+			t.Fatalf("server.New(cfg, l, nil, ks) should panic, got no panic")
 		}
 	}()
-	_ = server.New(&config.Config{Port: 1}, newTestLogger(), nil)
+	_, _ = server.New(newTestConfigForServer(1), newTestLogger(), nil, newTestKeySet(t))
+}
+
+// nil ks を渡すと server.New が契約違反として panic する (M1.1 で追加した契約)。
+func TestNew_NilKeySet_Panics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("server.New(cfg, l, pool, nil) should panic, got no panic")
+		}
+	}()
+	_, _ = server.New(newTestConfigForServer(1), newTestLogger(), newTestPool(t), nil)
 }
 
 // ===== 統合テスト (T-53..T-57): middleware チェーン全体組み立てた状態の検証 =====
@@ -112,8 +164,12 @@ func newIntegratedServerWithBuf(t *testing.T) (*http.Server, *bytes.Buffer) {
 	t.Helper()
 	buf := &bytes.Buffer{}
 	l := logger.New(logger.FormatJSON, buf)
-	cfg := &config.Config{Port: config.DefaultPort}
-	return server.New(cfg, l, newTestPool(t)), buf
+	cfg := newTestConfigForServer(config.DefaultPort)
+	srv, err := server.New(cfg, l, newTestPool(t), newTestKeySet(t))
+	if err != nil {
+		t.Fatalf("server.New: %v", err)
+	}
+	return srv, buf
 }
 
 // T-53: middleware チェーン全体を組み立てて GET /health を叩く。
@@ -312,4 +368,96 @@ func findFirstLogWithMsg(t *testing.T, buf *bytes.Buffer, msgWanted string) map[
 		}
 	}
 	return nil
+}
+
+// ===== M1.1 (#32) OIDC OP route 統合テスト =====
+
+// /.well-known/openid-configuration が登録され、200 + JSON を返す。
+func TestIntegration_DiscoveryRoute_OK(t *testing.T) {
+	srv, _ := newIntegratedServerWithBuf(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/openid-configuration", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("Discovery status = %d, want 200", res.StatusCode)
+	}
+	if ct := res.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+	if rec.Header().Get("X-Request-Id") == "" {
+		t.Error("middleware D1: X-Request-Id missing on Discovery route")
+	}
+}
+
+// /jwks が登録され、200 + JWKS 形式の JSON を返す。
+func TestIntegration_JWKSRoute_OK(t *testing.T) {
+	srv, _ := newIntegratedServerWithBuf(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/jwks", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(rec, req)
+
+	res := rec.Result()
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("JWKS status = %d, want 200", res.StatusCode)
+	}
+	if rec.Header().Get("X-Request-Id") == "" {
+		t.Error("middleware D1: X-Request-Id missing on JWKS route")
+	}
+
+	var got struct {
+		Keys []map[string]any `json:"keys"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(got.Keys) != 1 {
+		t.Fatalf("keys length = %d, want 1", len(got.Keys))
+	}
+}
+
+// notimpl 503 stub 各 endpoint (/authorize GET, /token POST, /userinfo GET)。
+func TestIntegration_NotImplementedRoutes(t *testing.T) {
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/authorize"},
+		{method: http.MethodPost, path: "/token"},
+		{method: http.MethodGet, path: "/userinfo"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			srv, _ := newIntegratedServerWithBuf(t)
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			rec := httptest.NewRecorder()
+			srv.Handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Errorf("%s %s: status = %d, want 503", tc.method, tc.path, rec.Code)
+			}
+			if rec.Header().Get("Cache-Control") != "no-store" {
+				t.Errorf("notimpl Cache-Control = %q, want no-store", rec.Header().Get("Cache-Control"))
+			}
+		})
+	}
+}
+
+// notimpl は GET メソッドのみ登録 (POST /authorize 等は ServeMux が 405 を返す)。
+func TestIntegration_NotImplementedMethodMismatch_405(t *testing.T) {
+	srv, _ := newIntegratedServerWithBuf(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/authorize", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST /authorize status = %d, want 405", rec.Code)
+	}
 }
