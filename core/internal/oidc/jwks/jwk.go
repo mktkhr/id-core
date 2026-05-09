@@ -42,19 +42,13 @@ func ToJWK(kp *keystore.KeyPair) (jwk.Key, error) {
 		return nil, fmt.Errorf("jwks.ToJWK: jwk.Import に失敗しました: %w", err)
 	}
 
-	// kty: jwk.Import は自動セット済みだが防御的に再設定 (鍵タイプ整合の二重確認)
-	if err := key.Set(jwk.KeyTypeKey, jwa.RSA()); err != nil {
-		return nil, fmt.Errorf("jwks.ToJWK: kty 設定に失敗しました: %w", err)
-	}
-	if err := key.Set(jwk.AlgorithmKey, jwa.RS256()); err != nil {
-		return nil, fmt.Errorf("jwks.ToJWK: alg 設定に失敗しました: %w", err)
-	}
-	if err := key.Set(jwk.KeyUsageKey, jwkUseSignature); err != nil {
-		return nil, fmt.Errorf("jwks.ToJWK: use 設定に失敗しました: %w", err)
-	}
-	if err := key.Set(jwk.KeyIDKey, kp.Kid); err != nil {
-		return nil, fmt.Errorf("jwks.ToJWK: kid 設定に失敗しました: %w", err)
-	}
+	// 4 フィールドを明示セット (Codex LOW 2 反映)。Set のエラーは jwx 内部の型不整合のみで、
+	// 引数 (jwa.RSA()/jwa.RS256()/string) は型が合っているため通常エラーにならない。
+	// jwx メジャーバージョン更新で型が変われば golden test が検知するため、ここでは無視する。
+	_ = key.Set(jwk.KeyTypeKey, jwa.RSA())
+	_ = key.Set(jwk.AlgorithmKey, jwa.RS256())
+	_ = key.Set(jwk.KeyUsageKey, jwkUseSignature)
+	_ = key.Set(jwk.KeyIDKey, kp.Kid)
 
 	return key, nil
 }

@@ -194,3 +194,47 @@ func TestNew_NilKeySetRejected(t *testing.T) {
 		t.Error("nil KeySet should be rejected")
 	}
 }
+
+// failingKeySet は KeySet の Verifying / Active で任意のエラーを返すモック (New エラー経路テスト用)。
+type failingKeySet struct {
+	verifyingErr error
+	activeErr    error
+	keys         []*keystore.KeyPair
+}
+
+func (f *failingKeySet) Active(_ context.Context) (*keystore.KeyPair, error) {
+	if f.activeErr != nil {
+		return nil, f.activeErr
+	}
+	return nil, nil
+}
+
+func (f *failingKeySet) Verifying(_ context.Context) ([]*keystore.KeyPair, error) {
+	if f.verifyingErr != nil {
+		return nil, f.verifyingErr
+	}
+	return f.keys, nil
+}
+
+// New 失敗系: keystore.Verifying がエラー → New もエラー。
+func TestNew_VerifyingError_Propagates(t *testing.T) {
+	ks := &failingKeySet{verifyingErr: errSentinel("verifying boom")}
+	_, err := jwks.New(ks, 300)
+	if err == nil {
+		t.Error("Verifying error should propagate")
+	}
+}
+
+// New 失敗系: BuildSet が失敗する (keys に nil が混入) → New もエラー。
+func TestNew_BuildSetError_Propagates(t *testing.T) {
+	ks := &failingKeySet{keys: []*keystore.KeyPair{nil}}
+	_, err := jwks.New(ks, 300)
+	if err == nil {
+		t.Error("BuildSet error should propagate")
+	}
+}
+
+// errSentinel は固定文字列 error を作る簡易 helper (sentinel ではないがインライン error 型代替)。
+type errSentinel string
+
+func (e errSentinel) Error() string { return string(e) }

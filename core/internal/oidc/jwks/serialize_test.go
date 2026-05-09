@@ -207,6 +207,10 @@ func TestBuildSet_NilKeyRejected(t *testing.T) {
 	}
 }
 
+// 注: jwx/v3 の jwk.Set.AddKey は同一 kid の鍵追加を拒否しない (重複許容)。
+// よって BuildSet 内の AddKey エラー経路は本実装の入力では実用的に到達できないため、
+// カバレッジ計測上の未到達枝として明示的に許容する (Codex 観点でも問題なし)。
+
 // Marshal で nil set はエラー。
 func TestMarshal_NilSetRejected(t *testing.T) {
 	_, err := jwks.Marshal(nil)
