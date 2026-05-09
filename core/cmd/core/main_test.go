@@ -3,7 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io/fs"
 	"os"
@@ -14,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/mktkhr/id-core/core/internal/config"
 	"github.com/mktkhr/id-core/core/internal/logger"
 )
 
@@ -226,3 +231,163 @@ func repoRoot(t *testing.T) string {
 	return filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
 }
 
+
+// ===== M1.1 (#32) keystore 統合テスト =====
+
+// CORE_ENV=prod + 鍵 env 未設定 → run() が exit 1 (config.Load 段階で起動失敗、F-9 / F-20-c)。
+//
+// 注: 統合テストではなくユニットテスト相当 (config.Load 失敗時点で run が抜けるため DB 不要)。
+func TestRun_ProdWithoutKeyEnv_ReturnsExitError(t *testing.T) {
+	t.Setenv("CORE_PORT", "")
+	t.Setenv("CORE_LOG_FORMAT", "json")
+	t.Setenv("CORE_ENV", "prod")
+	t.Setenv("CORE_OIDC_ISSUER", "https://id.example.com")
+	t.Setenv("CORE_OIDC_KEY_FILE", "")
+	t.Setenv("CORE_OIDC_DEV_GENERATE_KEY", "")
+	t.Setenv("CORE_DB_HOST", "localhost")
+	t.Setenv("CORE_DB_PORT", "5432")
+	t.Setenv("CORE_DB_USER", "u")
+	t.Setenv("CORE_DB_PASSWORD", "p")
+	t.Setenv("CORE_DB_NAME", "d")
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+
+	exitCode := run(w)
+	_ = w.Close()
+
+	if exitCode != exitError {
+		t.Errorf("run() = %d, want %d (prod + 鍵未設定で起動失敗)", exitCode, exitError)
+	}
+	var stderrBuf bytes.Buffer
+	_, _ = stderrBuf.ReadFrom(r)
+	if !strings.Contains(stderrBuf.String(), "設定の読み込みに失敗") {
+		t.Errorf("stderr should contain config load failure, got: %q", stderrBuf.String())
+	}
+}
+
+// emitKeystoreStartupLogs の出力スキーマを直接検証 (DB 不要、ロガー単離)。
+func TestEmitKeystoreStartupLogs_SchemaAndConditions(t *testing.T) {
+	var buf bytes.Buffer
+	l := logger.New(logger.FormatJSON, &buf)
+	ctx := logger.WithEventID(context.Background(), "test-event-id")
+
+	ks, src, err := initKeystore(ctx, &config.OIDCConfig{DevGenerateKey: true}, l)
+	if err != nil {
+		t.Fatalf("initKeystore: %v", err)
+	}
+	if err := emitKeystoreStartupLogs(ctx, l, ks, src, config.EnvDev); err != nil {
+		t.Fatalf("emitKeystoreStartupLogs: %v", err)
+	}
+
+	// 起動鍵情報 INFO ログを探す
+	var found map[string]any
+	for _, line := range strings.Split(strings.TrimRight(buf.String(), "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		var m map[string]any
+		if jerr := json.Unmarshal([]byte(line), &m); jerr != nil {
+			continue
+		}
+		if m["msg"] == "起動鍵情報" {
+			found = m
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("起動鍵情報 INFO ログが出力されていない: %q", buf.String())
+	}
+
+	// 必須フィールドの型と値
+	for _, key := range []string{"kid", "alg", "source", "env", "event_id"} {
+		v, ok := found[key].(string)
+		if !ok {
+			t.Errorf("起動鍵情報 missing/wrong type field %q: got %v", key, found[key])
+			continue
+		}
+		if v == "" {
+			t.Errorf("起動鍵情報 field %q is empty", key)
+		}
+	}
+	if found["alg"] != "RS256" {
+		t.Errorf("alg = %v, want RS256", found["alg"])
+	}
+	if found["source"] != "generated" {
+		t.Errorf("source = %v, want generated", found["source"])
+	}
+	if found["env"] != "dev" {
+		t.Errorf("env = %v, want dev", found["env"])
+	}
+
+	// kid は 24 hex 文字 (F-11)
+	if kid, _ := found["kid"].(string); len(kid) != 24 {
+		t.Errorf("kid length = %d, want 24 (F-11)", len(kid))
+	}
+
+	// dev 鍵生成モードの WARN
+	if !strings.Contains(buf.String(), "dev 鍵生成モード") {
+		t.Errorf("WARN dev 鍵生成モード が出力されていない: %q", buf.String())
+	}
+
+	// F-18 redact 確認: 秘密鍵 / PEM / RSA modulus(n) / exponent(e) 値が出ていない
+	for _, leak := range []string{"BEGIN PRIVATE", "BEGIN RSA", `"n":`, `"e":`, `"d":`} {
+		if strings.Contains(buf.String(), leak) {
+			t.Errorf("F-18 redact 違反: ログに %q が含まれている: %q", leak, buf.String())
+		}
+	}
+}
+
+// 短い鍵 (1024 bit) で WARN ログが出ること (論点 #16)。
+func TestEmitKeystoreStartupLogs_ShortKey_EmitsWarn(t *testing.T) {
+	// keystore.Init は SourceGenerated だと 2048 bit 固定なので、
+	// 直接 buildKeyPair 相当の状態を作るには... → keystore がそういう内部 helper を export していないため、
+	// ファイルモードで 1024 bit PEM を渡してテストする。
+	rsaKey1024PEM := generateTestPEM1024(t)
+	tempPath := writeTempPEM(t, rsaKey1024PEM)
+
+	var buf bytes.Buffer
+	l := logger.New(logger.FormatJSON, &buf)
+	ctx := logger.WithEventID(context.Background(), "test-event-id")
+
+	ks, src, err := initKeystore(ctx, &config.OIDCConfig{KeyFile: tempPath}, l)
+	if err != nil {
+		t.Fatalf("initKeystore: %v", err)
+	}
+	if err := emitKeystoreStartupLogs(ctx, l, ks, src, config.EnvDev); err != nil {
+		t.Fatalf("emitKeystoreStartupLogs: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "1024 bit") {
+		t.Errorf("WARN 鍵長 1024 bit が出力されていない: %q", buf.String())
+	}
+	if !strings.Contains(buf.String(), "2048 bit 以上を推奨") {
+		t.Errorf("WARN 推奨メッセージが含まれていない: %q", buf.String())
+	}
+}
+
+// generateTestPEM1024 は 1024 bit RSA を生成して PKCS#8 PEM バイト列を返す。
+func generateTestPEM1024(t *testing.T) []byte {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatalf("rsa.GenerateKey: %v", err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatalf("MarshalPKCS8: %v", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+}
+
+func writeTempPEM(t *testing.T, data []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test.pem")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	return path
+}

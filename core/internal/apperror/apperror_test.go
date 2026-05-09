@@ -209,3 +209,19 @@ func TestWriteJSON(t *testing.T) {
 		t.Errorf("body unexpected: %v", got)
 	}
 }
+
+// CodeEndpointNotImplemented 定数の値と、apperror.New 経由で利用可能なことを確認 (M1.1)。
+func TestCodeEndpointNotImplemented_Constant(t *testing.T) {
+	if apperror.CodeEndpointNotImplemented != "ENDPOINT_NOT_IMPLEMENTED" {
+		t.Errorf("CodeEndpointNotImplemented = %q, want %q",
+			apperror.CodeEndpointNotImplemented, "ENDPOINT_NOT_IMPLEMENTED")
+	}
+
+	e := apperror.New(apperror.CodeEndpointNotImplemented, "M1.2 で実装予定")
+	if e.Code() != "ENDPOINT_NOT_IMPLEMENTED" {
+		t.Errorf("New().Code() = %q, want %q", e.Code(), "ENDPOINT_NOT_IMPLEMENTED")
+	}
+	if e.Message() != "M1.2 で実装予定" {
+		t.Errorf("New().Message() = %q", e.Message())
+	}
+}

@@ -9,6 +9,15 @@ import "fmt"
 // HTTP middleware の recover からの最終受け皿として使う。
 const CodeInternalError = "INTERNAL_ERROR"
 
+// CodeEndpointNotImplemented は M1.1 で広告するが M1.2-1.4 で本実装される未実装 endpoint
+// (`/authorize`, `/token`, `/userinfo`) を表す内部 code (M1.1 で導入、設計 #32 F-23)。
+//
+// 注意: 現行の notimpl handler は OIDC 標準形式 `{"error":"endpoint_not_implemented",...}`
+// (snake_case) を直接返しており、本 code を経由しない (論点 #8 の二重化方針)。
+// 本定数は内部 SCREAMING_SNAKE_CASE 規約遵守のための予約定義であり、将来 apperror 経由の
+// 構造化エラー応答に切り替える際に利用する。registry.md の「エラーコード一覧」に記載済。
+const CodeEndpointNotImplemented = "ENDPOINT_NOT_IMPLEMENTED"
+
 // CodedError は内部 API のエラーレスポンスを表す型。
 //
 // immutable: WithDetails / Wrap は新しいインスタンスを返し、レシーバを変更しない。
