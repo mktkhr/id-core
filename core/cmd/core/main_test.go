@@ -119,6 +119,11 @@ func TestRun_DBOpenFailure_ReturnsExitError(t *testing.T) {
 	t.Setenv("CORE_DB_PASSWORD", "p")
 	t.Setenv("CORE_DB_NAME", "d")
 	t.Setenv("CORE_DB_SSLMODE", "disable")
+	// M1.1 (#32) で必須化された CORE_ENV / CORE_OIDC_* を設定し、config.Load を通す。
+	// 本テストは db.Open 失敗を観測対象にしているため OIDC 検証は通過する必要がある。
+	t.Setenv("CORE_ENV", "dev")
+	t.Setenv("CORE_OIDC_ISSUER", "http://localhost:8080")
+	t.Setenv("CORE_OIDC_DEV_GENERATE_KEY", "1")
 
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -147,6 +152,10 @@ func TestBootstrap_Success_EventIDIsUUIDv7(t *testing.T) {
 	t.Setenv("CORE_DB_USER", "idcore")
 	t.Setenv("CORE_DB_PASSWORD", "idcore")
 	t.Setenv("CORE_DB_NAME", "idcore")
+	// M1.1 (#32): CORE_ENV / CORE_OIDC_* も必須。dev + 起動時鍵生成モードで bootstrap を通す。
+	t.Setenv("CORE_ENV", "dev")
+	t.Setenv("CORE_OIDC_ISSUER", "http://localhost:8080")
+	t.Setenv("CORE_OIDC_DEV_GENERATE_KEY", "1")
 
 	cfg, l, eventID, err := bootstrap()
 	if err != nil {

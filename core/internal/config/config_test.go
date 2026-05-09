@@ -11,8 +11,18 @@ import (
 // 注: t.Setenv は t.Parallel と併用不可なため、各サブテストは直列実行する。
 //     CORE_PORT / CORE_DB_* 環境変数を扱う性質上、テスト間の干渉を防ぐ目的でも直列が適切。
 
-// setValidDBEnv は CORE_DB_* の必須項目を有効値で設定する。
-// CORE_PORT 系テストなど DB 検証が主眼でないテストで利用する。
+// setValidDBEnv は config.Load() が成功するために必須となる「ベース env」を全て設定する。
+//
+// 含むもの:
+//   - DB 必須 (CORE_DB_HOST/PORT/USER/PASSWORD/NAME)
+//   - DB 任意 (CORE_DB_SSLMODE / POOL_*) は空文字 (= 既定値採用)
+//   - CORE_ENV=dev (M1.1 で必須化)
+//   - CORE_OIDC_ISSUER (M1.1 で必須化、dev は http:// 許可)
+//   - CORE_OIDC_DEV_GENERATE_KEY=1 (M1.1 で staging/dev に必須、prod では禁止)
+//   - その他 OIDC 任意 env は空文字 (既定値 / 自動算出)
+//
+// 名前は M0.3 由来 (DB セットアップが起源) のままだが、M1.1 以降は「Load 成功の最低限 env」
+// を提供する汎用ヘルパー。OIDC 個別検証テストは本ヘルパー呼び出し後に t.Setenv で上書きする。
 func setValidDBEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("CORE_DB_HOST", "localhost")
@@ -27,6 +37,20 @@ func setValidDBEnv(t *testing.T) {
 	t.Setenv("CORE_DB_POOL_MAX_CONN_LIFETIME", "")
 	t.Setenv("CORE_DB_POOL_MAX_CONN_IDLE_TIME", "")
 	t.Setenv("CORE_DB_POOL_HEALTH_CHECK_PERIOD", "")
+
+	// M1.1 で必須化された env (CORE_ENV / CORE_OIDC_*)。
+	// dev + 起動時鍵生成モードで Load() が成功する最小組み合わせ。
+	t.Setenv("CORE_ENV", "dev")
+	t.Setenv("CORE_OIDC_ISSUER", "http://localhost:8080")
+	t.Setenv("CORE_OIDC_KEY_FILE", "")
+	t.Setenv("CORE_OIDC_DEV_GENERATE_KEY", "1")
+	t.Setenv("CORE_OIDC_KEY_ID", "")
+	t.Setenv("CORE_OIDC_JWKS_MAX_AGE", "")
+	t.Setenv("CORE_OIDC_DISCOVERY_MAX_AGE", "")
+	t.Setenv("CORE_OIDC_AUTHORIZATION_ENDPOINT", "")
+	t.Setenv("CORE_OIDC_TOKEN_ENDPOINT", "")
+	t.Setenv("CORE_OIDC_USERINFO_ENDPOINT", "")
+	t.Setenv("CORE_OIDC_JWKS_URI", "")
 }
 
 func TestLoad_Success(t *testing.T) {
@@ -337,6 +361,394 @@ func TestLoad_MissingRequiredDBEnv(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), key) {
 				t.Errorf("エラーメッセージに %q を含むべき: got %q", key, err.Error())
+			}
+		})
+	}
+}
+
+// ----------------------------------------------------------------------------
+// M1.1 (#32): CORE_ENV strict + CORE_OIDC_* テスト群
+// ----------------------------------------------------------------------------
+
+// CORE_ENV strict: prod / staging / dev のみ許容。
+func TestLoad_EnvStrict_AcceptsValidValues(t *testing.T) {
+	cases := []struct {
+		envValue string
+		want     config.EnvName
+		// prod では CORE_OIDC_DEV_GENERATE_KEY が禁止のため、prod の場合だけ
+		// CORE_OIDC_KEY_FILE をダミー値で設定する。
+		isProd bool
+	}{
+		{envValue: "dev", want: config.EnvDev},
+		{envValue: "staging", want: config.EnvStaging},
+		{envValue: "prod", want: config.EnvProd, isProd: true},
+	}
+	for _, tc := range cases {
+		t.Run("CORE_ENV="+tc.envValue, func(t *testing.T) {
+			setValidDBEnv(t)
+			t.Setenv("CORE_PORT", "")
+			t.Setenv("CORE_ENV", tc.envValue)
+			if tc.isProd {
+				// prod では https:// + KEY_FILE 必須、DEV_GENERATE_KEY=0 必須。
+				t.Setenv("CORE_OIDC_ISSUER", "https://id.example.com")
+				t.Setenv("CORE_OIDC_KEY_FILE", "/etc/id-core/keys/signing.pem")
+				t.Setenv("CORE_OIDC_DEV_GENERATE_KEY", "0")
+			} else if tc.envValue == "staging" {
+				// staging も https:// 必須。
+				t.Setenv("CORE_OIDC_ISSUER", "https://id-staging.example.com")
+			}
+
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatalf("config.Load() でエラー: %v", err)
+			}
+			if cfg.Env != tc.want {
+				t.Errorf("Env = %q, want %q", cfg.Env, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoad_EnvStrict_RejectsInvalidValues(t *testing.T) {
+	cases := []string{
+		"",           // 空文字
+		"production", // 紛らわしい
+		"PROD",       // 大文字
+		"Dev",        // mixed case
+		"local",      // 未定義値
+		"staging ",   // trailing space
+	}
+	for _, v := range cases {
+		t.Run("CORE_ENV="+v, func(t *testing.T) {
+			setValidDBEnv(t)
+			t.Setenv("CORE_PORT", "")
+			t.Setenv("CORE_ENV", v)
+
+			_, err := config.Load()
+			if err == nil {
+				t.Fatalf("config.Load() がエラーを返さなかった")
+			}
+			if !strings.Contains(err.Error(), "CORE_ENV") {
+				t.Errorf("エラーメッセージに 'CORE_ENV' を含むべき: got %q", err.Error())
+			}
+		})
+	}
+}
+
+// CORE_OIDC_ISSUER scheme + 末尾 / strip。
+func TestLoad_Issuer_NormalizationAndScheme(t *testing.T) {
+	cases := []struct {
+		name      string
+		env       string
+		issuer    string
+		wantValue string // 空 = エラー想定
+		wantErr   bool
+	}{
+		{name: "dev: http 許可", env: "dev", issuer: "http://localhost:8080", wantValue: "http://localhost:8080"},
+		{name: "dev: https 許可", env: "dev", issuer: "https://localhost:8080", wantValue: "https://localhost:8080"},
+		{name: "dev: 末尾 / strip", env: "dev", issuer: "http://localhost:8080/", wantValue: "http://localhost:8080"},
+		{name: "dev: subpath + 末尾 / strip", env: "dev", issuer: "http://localhost:8080/id-core/", wantValue: "http://localhost:8080/id-core"},
+		{name: "staging: https 必須", env: "staging", issuer: "https://id-staging.example.com", wantValue: "https://id-staging.example.com"},
+		{name: "staging: http は失敗", env: "staging", issuer: "http://id-staging.example.com", wantErr: true},
+		{name: "prod: https 必須", env: "prod", issuer: "https://id.example.com", wantValue: "https://id.example.com"},
+		{name: "prod: http は失敗", env: "prod", issuer: "http://id.example.com", wantErr: true},
+		{name: "scheme 不正 (ftp)", env: "dev", issuer: "ftp://example.com", wantErr: true},
+		{name: "scheme なし", env: "dev", issuer: "example.com", wantErr: true},
+		{name: "host 空", env: "dev", issuer: "https://", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setValidDBEnv(t)
+			t.Setenv("CORE_PORT", "")
+			t.Setenv("CORE_ENV", tc.env)
+			t.Setenv("CORE_OIDC_ISSUER", tc.issuer)
+			if tc.env == "prod" {
+				t.Setenv("CORE_OIDC_KEY_FILE", "/etc/id-core/keys/signing.pem")
+				t.Setenv("CORE_OIDC_DEV_GENERATE_KEY", "0")
+			}
+
+			cfg, err := config.Load()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("config.Load() がエラーを返さなかった (cfg=%+v)", cfg)
+				}
+				if !strings.Contains(err.Error(), "CORE_OIDC_ISSUER") {
+					t.Errorf("エラーメッセージに 'CORE_OIDC_ISSUER' を含むべき: got %q", err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("config.Load() でエラー: %v", err)
+			}
+			if cfg.OIDC.Issuer != tc.wantValue {
+				t.Errorf("Issuer = %q, want %q", cfg.OIDC.Issuer, tc.wantValue)
+			}
+		})
+	}
+}
+
+func TestLoad_Issuer_MissingFails(t *testing.T) {
+	setValidDBEnv(t)
+	t.Setenv("CORE_PORT", "")
+	t.Setenv("CORE_OIDC_ISSUER", "")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatalf("config.Load() がエラーを返さなかった")
+	}
+	if !strings.Contains(err.Error(), "CORE_OIDC_ISSUER") {
+		t.Errorf("エラーメッセージに 'CORE_OIDC_ISSUER' を含むべき: got %q", err.Error())
+	}
+}
+
+// 鍵ソース (KEY_FILE / DEV_GENERATE_KEY) の env 別ルール (F-7 / F-9)。
+func TestLoad_KeySource_PerEnvRules(t *testing.T) {
+	cases := []struct {
+		name       string
+		env        string
+		issuer     string
+		keyFile    string
+		devGen     string
+		wantErr    bool
+		wantFile   string
+		wantDevGen bool
+	}{
+		// dev
+		{name: "dev: 両方未設定 → 失敗", env: "dev", issuer: "http://localhost:8080", wantErr: true},
+		{name: "dev: KEY_FILE のみ → OK", env: "dev", issuer: "http://localhost:8080", keyFile: "/tmp/dev.pem", wantFile: "/tmp/dev.pem"},
+		{name: "dev: DEV_GENERATE_KEY=1 のみ → OK", env: "dev", issuer: "http://localhost:8080", devGen: "1", wantDevGen: true},
+		{name: "dev: 両方指定 → 失敗", env: "dev", issuer: "http://localhost:8080", keyFile: "/tmp/dev.pem", devGen: "1", wantErr: true},
+		{name: "dev: DEV_GENERATE_KEY 不正値 (2) → 失敗", env: "dev", issuer: "http://localhost:8080", devGen: "2", wantErr: true},
+		// staging
+		{name: "staging: 両方未設定 → 失敗", env: "staging", issuer: "https://staging.example.com", wantErr: true},
+		{name: "staging: KEY_FILE のみ → OK", env: "staging", issuer: "https://staging.example.com", keyFile: "/etc/keys/signing.pem", wantFile: "/etc/keys/signing.pem"},
+		{name: "staging: DEV_GENERATE_KEY=1 のみ → OK", env: "staging", issuer: "https://staging.example.com", devGen: "1", wantDevGen: true},
+		// prod
+		{name: "prod: KEY_FILE 未設定 → 失敗", env: "prod", issuer: "https://id.example.com", wantErr: true},
+		{name: "prod: DEV_GENERATE_KEY=1 → 失敗", env: "prod", issuer: "https://id.example.com", devGen: "1", wantErr: true},
+		{name: "prod: KEY_FILE のみ → OK", env: "prod", issuer: "https://id.example.com", keyFile: "/etc/keys/signing.pem", wantFile: "/etc/keys/signing.pem"},
+		{name: "prod: KEY_FILE + DEV_GENERATE_KEY=0 → OK", env: "prod", issuer: "https://id.example.com", keyFile: "/etc/keys/signing.pem", devGen: "0", wantFile: "/etc/keys/signing.pem"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setValidDBEnv(t)
+			t.Setenv("CORE_PORT", "")
+			t.Setenv("CORE_ENV", tc.env)
+			t.Setenv("CORE_OIDC_ISSUER", tc.issuer)
+			t.Setenv("CORE_OIDC_KEY_FILE", tc.keyFile)
+			t.Setenv("CORE_OIDC_DEV_GENERATE_KEY", tc.devGen)
+
+			cfg, err := config.Load()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("config.Load() がエラーを返さなかった (cfg=%+v)", cfg)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("config.Load() でエラー: %v", err)
+			}
+			if cfg.OIDC.KeyFile != tc.wantFile {
+				t.Errorf("KeyFile = %q, want %q", cfg.OIDC.KeyFile, tc.wantFile)
+			}
+			if cfg.OIDC.DevGenerateKey != tc.wantDevGen {
+				t.Errorf("DevGenerateKey = %v, want %v", cfg.OIDC.DevGenerateKey, tc.wantDevGen)
+			}
+		})
+	}
+}
+
+// CORE_OIDC_KEY_ID の任意 override。
+func TestLoad_KeyID_Optional(t *testing.T) {
+	t.Run("未設定 → 空 (keystore で自動算出)", func(t *testing.T) {
+		setValidDBEnv(t)
+		cfg, err := config.Load()
+		if err != nil {
+			t.Fatalf("config.Load() でエラー: %v", err)
+		}
+		if cfg.OIDC.KeyID != "" {
+			t.Errorf("KeyID = %q, want empty (auto-derive)", cfg.OIDC.KeyID)
+		}
+	})
+	t.Run("設定 → そのまま採用", func(t *testing.T) {
+		setValidDBEnv(t)
+		t.Setenv("CORE_OIDC_KEY_ID", "custom-kid-2026-05")
+		cfg, err := config.Load()
+		if err != nil {
+			t.Fatalf("config.Load() でエラー: %v", err)
+		}
+		if cfg.OIDC.KeyID != "custom-kid-2026-05" {
+			t.Errorf("KeyID = %q, want %q", cfg.OIDC.KeyID, "custom-kid-2026-05")
+		}
+	})
+}
+
+// max-age 既定値と範囲検証。
+func TestLoad_MaxAge_Defaults(t *testing.T) {
+	setValidDBEnv(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load() でエラー: %v", err)
+	}
+	if cfg.OIDC.JWKSMaxAge != config.DefaultJWKSMaxAge {
+		t.Errorf("JWKSMaxAge = %d, want %d (default)", cfg.OIDC.JWKSMaxAge, config.DefaultJWKSMaxAge)
+	}
+	if cfg.OIDC.DiscoveryMaxAge != config.DefaultDiscoveryMaxAge {
+		t.Errorf("DiscoveryMaxAge = %d, want %d (default)", cfg.OIDC.DiscoveryMaxAge, config.DefaultDiscoveryMaxAge)
+	}
+}
+
+func TestLoad_MaxAge_RangeValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		key     string
+		val     string
+		wantErr bool
+	}{
+		{name: "JWKS 0 (下限) → OK", key: "CORE_OIDC_JWKS_MAX_AGE", val: "0"},
+		{name: "JWKS 86400 (上限) → OK", key: "CORE_OIDC_JWKS_MAX_AGE", val: "86400"},
+		{name: "JWKS -1 → エラー", key: "CORE_OIDC_JWKS_MAX_AGE", val: "-1", wantErr: true},
+		{name: "JWKS 86401 → エラー", key: "CORE_OIDC_JWKS_MAX_AGE", val: "86401", wantErr: true},
+		{name: "JWKS 非数値 → エラー", key: "CORE_OIDC_JWKS_MAX_AGE", val: "abc", wantErr: true},
+		{name: "Discovery 0 (下限) → OK", key: "CORE_OIDC_DISCOVERY_MAX_AGE", val: "0"},
+		{name: "Discovery 86400 (上限) → OK", key: "CORE_OIDC_DISCOVERY_MAX_AGE", val: "86400"},
+		{name: "Discovery -1 → エラー", key: "CORE_OIDC_DISCOVERY_MAX_AGE", val: "-1", wantErr: true},
+		{name: "Discovery 86401 → エラー", key: "CORE_OIDC_DISCOVERY_MAX_AGE", val: "86401", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setValidDBEnv(t)
+			t.Setenv(tc.key, tc.val)
+
+			_, err := config.Load()
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("config.Load() がエラーを返さなかった")
+				}
+				if !strings.Contains(err.Error(), tc.key) {
+					t.Errorf("エラーメッセージに %q を含むべき: got %q", tc.key, err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("config.Load() でエラー: %v", err)
+			}
+		})
+	}
+}
+
+// endpoint URL: 未指定なら issuer から JoinPath で構築 (subpath 透過、F-3 / F-17)。
+func TestLoad_EndpointResolution_DefaultsFromIssuer(t *testing.T) {
+	cases := []struct {
+		name             string
+		issuer           string
+		wantAuthorize    string
+		wantToken        string
+		wantUserInfo     string
+		wantJWKSURI      string
+		setupExtraDevEnv bool
+	}{
+		{
+			name:          "標準 (path なし)",
+			issuer:        "https://id.example.com",
+			wantAuthorize: "https://id.example.com/authorize",
+			wantToken:     "https://id.example.com/token",
+			wantUserInfo:  "https://id.example.com/userinfo",
+			wantJWKSURI:   "https://id.example.com/jwks",
+		},
+		{
+			name:          "subpath あり",
+			issuer:        "https://example.com/id-core",
+			wantAuthorize: "https://example.com/id-core/authorize",
+			wantToken:     "https://example.com/id-core/token",
+			wantUserInfo:  "https://example.com/id-core/userinfo",
+			wantJWKSURI:   "https://example.com/id-core/jwks",
+		},
+		{
+			name:             "dev 非標準ポート",
+			issuer:           "http://localhost:8080",
+			wantAuthorize:    "http://localhost:8080/authorize",
+			wantToken:        "http://localhost:8080/token",
+			wantUserInfo:     "http://localhost:8080/userinfo",
+			wantJWKSURI:      "http://localhost:8080/jwks",
+			setupExtraDevEnv: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setValidDBEnv(t)
+			if !tc.setupExtraDevEnv {
+				// dev 以外のテスト (https) は CORE_ENV を維持して KEY_FILE を入れる。
+				t.Setenv("CORE_ENV", "staging")
+			}
+			t.Setenv("CORE_OIDC_ISSUER", tc.issuer)
+
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatalf("config.Load() でエラー: %v", err)
+			}
+			if cfg.OIDC.AuthorizationEndpoint != tc.wantAuthorize {
+				t.Errorf("AuthorizationEndpoint = %q, want %q", cfg.OIDC.AuthorizationEndpoint, tc.wantAuthorize)
+			}
+			if cfg.OIDC.TokenEndpoint != tc.wantToken {
+				t.Errorf("TokenEndpoint = %q, want %q", cfg.OIDC.TokenEndpoint, tc.wantToken)
+			}
+			if cfg.OIDC.UserInfoEndpoint != tc.wantUserInfo {
+				t.Errorf("UserInfoEndpoint = %q, want %q", cfg.OIDC.UserInfoEndpoint, tc.wantUserInfo)
+			}
+			if cfg.OIDC.JWKSURI != tc.wantJWKSURI {
+				t.Errorf("JWKSURI = %q, want %q", cfg.OIDC.JWKSURI, tc.wantJWKSURI)
+			}
+		})
+	}
+}
+
+func TestLoad_EndpointResolution_OverrideTakesPrecedence(t *testing.T) {
+	setValidDBEnv(t)
+	t.Setenv("CORE_OIDC_AUTHORIZATION_ENDPOINT", "https://auth.example.com/authorize")
+	t.Setenv("CORE_OIDC_TOKEN_ENDPOINT", "https://token.example.com/token")
+	t.Setenv("CORE_OIDC_USERINFO_ENDPOINT", "https://userinfo.example.com/userinfo")
+	t.Setenv("CORE_OIDC_JWKS_URI", "https://jwks.example.com/jwks.json")
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load() でエラー: %v", err)
+	}
+	if cfg.OIDC.AuthorizationEndpoint != "https://auth.example.com/authorize" {
+		t.Errorf("AuthorizationEndpoint override 不適用: got %q", cfg.OIDC.AuthorizationEndpoint)
+	}
+	if cfg.OIDC.TokenEndpoint != "https://token.example.com/token" {
+		t.Errorf("TokenEndpoint override 不適用: got %q", cfg.OIDC.TokenEndpoint)
+	}
+	if cfg.OIDC.UserInfoEndpoint != "https://userinfo.example.com/userinfo" {
+		t.Errorf("UserInfoEndpoint override 不適用: got %q", cfg.OIDC.UserInfoEndpoint)
+	}
+	if cfg.OIDC.JWKSURI != "https://jwks.example.com/jwks.json" {
+		t.Errorf("JWKSURI override 不適用: got %q", cfg.OIDC.JWKSURI)
+	}
+}
+
+func TestLoad_EndpointResolution_InvalidOverride(t *testing.T) {
+	cases := []struct {
+		name string
+		key  string
+		val  string
+	}{
+		{name: "scheme なし", key: "CORE_OIDC_AUTHORIZATION_ENDPOINT", val: "/authorize"},
+		{name: "host なし", key: "CORE_OIDC_TOKEN_ENDPOINT", val: "https://"},
+		{name: "URL parse 不能", key: "CORE_OIDC_USERINFO_ENDPOINT", val: "://invalid"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setValidDBEnv(t)
+			t.Setenv(tc.key, tc.val)
+
+			_, err := config.Load()
+			if err == nil {
+				t.Fatalf("config.Load() がエラーを返さなかった")
+			}
+			if !strings.Contains(err.Error(), tc.key) {
+				t.Errorf("エラーメッセージに %q を含むべき: got %q", tc.key, err.Error())
 			}
 		})
 	}
