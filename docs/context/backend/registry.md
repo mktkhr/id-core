@@ -1,6 +1,6 @@
 # バックエンドレジストリ (id-core / Go)
 
-> 最終更新: 2026-05-09 (M1.1: keystore / OIDC discovery / jwks / notimpl / devkeygen / CORE*ENV / CORE_OIDC*\* を追加、設計 #32)
+> 最終更新: 2026-05-09 (M1.1: keystore / OIDC discovery / jwks / notimpl / devkeygen / `CORE_ENV` / `CORE_OIDC_*` を追加、設計 #32)
 
 ## パッケージマッピング
 
@@ -8,7 +8,7 @@
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `core/cmd/core`                 | 実行ファイルエントリポイント (`main`)。起動・signal handling・最終 ID 発番・logger 初期化                               | `internal/config`, `internal/logger`, `internal/server`, `internal/keystore`, `os`, `os/signal`, `context`                                                                                           |
 | `core/cmd/devkeygen`            | dev / staging 用 RSA 2048 bit 鍵ペア生成 CLI (M1.1、`make dev-keygen`)                                                  | `crypto/rsa`, `crypto/x509`, `encoding/pem`, `flag`, `os`                                                                                                                                            |
-| `core/internal/config`          | 環境変数読み込み + バリデーション (CORE*ENV strict + CORE_OIDC*\* 追加、M1.1)                                           | `os`, `strconv`, `strings`, `net/url`, `fmt`, `time`                                                                                                                                                 |
+| `core/internal/config`          | 環境変数読み込み + バリデーション (`CORE_ENV` strict + `CORE_OIDC_*` 追加、M1.1)                                        | `os`, `strconv`, `strings`, `net/url`, `fmt`, `time`                                                                                                                                                 |
 | `core/internal/logger`          | 構造化ロガー (slog ラッパ + Format / Context / Redact / FallbackWriter)                                                 | `log/slog`, `github.com/google/uuid`, `context`, `io`, `sync/atomic`                                                                                                                                 |
 | `core/internal/apperror`        | 構造化エラー型 (`CodedError`) + JSON シリアライザ (`Response` / `WriteJSON`)                                            | `encoding/json`, `errors`, `fmt`, `net/http`                                                                                                                                                         |
 | `core/internal/middleware`      | request_id / access_log / recover (D1 順序の HTTP middleware 群)                                                        | `internal/logger`, `internal/apperror`, `github.com/google/uuid`, `net/http`, `sync/atomic`                                                                                                          |
